@@ -1,0 +1,32 @@
+name: agentic-dlq-triage
+version: 1.0.0
+description: >
+  An OpenEnv environment that trains agents to diagnose and recover
+  from production tool-call failures — classifying errors, detecting
+  cascades, and making retry decisions across 3 difficulty levels.
+author: Pulagalla Sai Kiran
+tags:
+  - agentic
+  - reliability
+  - production
+  - tool-calling
+  - error-recovery
+tasks:
+  - id: task_l1
+    name: Transient failure recovery
+    difficulty: easy
+    description: >
+      Agent receives a rate-limit failure trace and must decide to RETRY
+      with the correct backoff window.
+  - id: task_l2
+    name: Schema mismatch transform
+    difficulty: medium
+    description: >
+      Agent must identify a type mismatch, produce the corrected payload,
+      and select TRANSFORM_AND_RETRY.
+  - id: task_l3
+    name: Cascade root cause diagnosis
+    difficulty: hard
+    description: >
+      Three linked tools — one timeout causes downstream failure. Agent must
+      identify root cause, assess idempotency, and scope the retry correctly.
