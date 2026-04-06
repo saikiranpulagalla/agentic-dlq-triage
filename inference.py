@@ -12,7 +12,13 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
-BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8000")
+# Environment variables - required for submission
+API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
+MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+HF_TOKEN = os.getenv("HF_TOKEN")  # No default - required
+LLM_API_BASE_URL = os.getenv("LLM_API_BASE_URL", "https://router.huggingface.co/v1")
+
+BASE_URL = API_BASE_URL
 
 
 # ── Rule-based agent ──────────────────────────────────────────────────────────
@@ -130,29 +136,16 @@ Reply with ONLY valid JSON. No explanation. No markdown fences:
     return base
 
 
-def run_llm_agent(seed: int = 42) -> list:
+def run_llm_agent(seed: int = 42) -> list[float]:
     """Run LLM agent and return scores."""
-    # Get API configuration from environment
-    groq_api_key = os.environ.get("GROQ_API_KEY", "")
-    openai_api_key = os.environ.get("OPENAI_API_KEY", "")
-    model = os.environ.get("MODEL_NAME", "llama-3.1-8b-instant")
+    llm_api_base = LLM_API_BASE_URL
+    model = MODEL_NAME
+    api_key = HF_TOKEN
     
-    # Determine API base and key based on available credentials
-    if groq_api_key:
-        api_base = "https://api.groq.com/openai/v1"
-        api_key = groq_api_key
-        provider = "Groq"
-    elif openai_api_key:
-        api_base = "https://api.openai.com/v1"
-        api_key = openai_api_key
-        provider = "OpenAI"
-    else:
-        # No API key available, will fall back to ESCALATE
-        api_base = "https://api.groq.com/openai/v1"
-        api_key = ""
-        provider = "Groq"
-
-    client = OpenAI(base_url=api_base, api_key=api_key)
+    # Works with both Groq and HF inference endpoints
+    # Groq: LLM_API_BASE_URL=https://api.groq.com/openai/v1, MODEL_NAME=llama-3.1-8b-instant
+    # HF:   LLM_API_BASE_URL=https://router.huggingface.co/v1, MODEL_NAME=Qwen/Qwen2.5-72B-Instruct
+    client = OpenAI(base_url=llm_api_base, api_key=api_key)
 
     scores = []
     resp = requests.post(f"{BASE_URL}/reset", json={"seed": seed})
@@ -203,32 +196,25 @@ def run_llm_agent(seed: int = 42) -> list:
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     """Run both agents and print comparison table."""
+    print("START")
+    
     task_names = [
         "L1 — Transient failure",
         "L2 — Schema mismatch",
         "L3 — Cascade root cause",
     ]
 
-    print("\nRunning rule-based agent...")
+    print("STEP: Running rule-based agent...")
     rule_scores = run_rule_based(seed=42)
 
-    # Determine provider name for display
-    groq_api_key = os.environ.get("GROQ_API_KEY", "")
-    openai_api_key = os.environ.get("OPENAI_API_KEY", "")
-    model = os.environ.get("MODEL_NAME", "llama-3.1-8b-instant")
-    
-    if groq_api_key:
-        provider_display = f"LLM ({model})"
-    elif openai_api_key:
-        provider_display = f"LLM ({model})"
-    else:
-        provider_display = "LLM (No API Key)"
+    # Get model name for display
+    model_label = MODEL_NAME.split("/")[-1][:20]  # shorten long model names
 
-    print(f"Running LLM agent...")
+    print("STEP: Running LLM agent...")
     llm_scores = run_llm_agent(seed=42)
 
     print("\n" + "=" * 52)
-    print(f"{'Task':<26} {'Rule-Based':>10} {provider_display:>12}")
+    print(f"{'Task':<26} {'Rule-Based':>10} {f'LLM ({model_label})':>22}")
     print("-" * 52)
     for name, rb, llm in zip(task_names, rule_scores, llm_scores):
         print(f"{name:<26} {rb:>10.2f} {llm:>12.2f}")
@@ -237,6 +223,8 @@ def main():
         f"{'Average':<26} {sum(rule_scores)/len(rule_scores):>10.2f} {sum(llm_scores)/len(llm_scores):>12.2f}"
     )
     print()
+    
+    print("END")
 
 
 if __name__ == "__main__":

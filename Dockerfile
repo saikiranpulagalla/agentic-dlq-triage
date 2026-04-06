@@ -2,16 +2,16 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install uv for dependency management
-RUN pip install --no-cache-dir uv
-
 # Copy project files
 COPY pyproject.toml requirements.txt ./
 COPY src/ ./src/
 COPY openenv.yaml ./
 
-# Install dependencies using uv
-RUN uv pip install --system -r requirements.txt
+# Install dependencies using pip
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Install the package in editable mode
+RUN pip install -e .
 
 # Expose port 8000
 EXPOSE 8000

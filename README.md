@@ -2,6 +2,69 @@
 
 An OpenEnv environment for training reinforcement learning agents to diagnose and recover from production tool-call failures.
 
+## Architecture
+
+```mermaid
+graph TB
+    subgraph "Client Layer"
+        A[Agent/Client] --> B[HTTP Requests]
+    end
+    
+    subgraph "FastAPI Server"
+        B --> C[FastAPI App]
+        C --> D[/reset Endpoint]
+        C --> E[/step Endpoint] 
+        C --> F[/state Endpoint]
+    end
+    
+    subgraph "Core Engine"
+        D --> G[EpisodeManager]
+        E --> G
+        F --> G
+        G --> H[FailureGenerator]
+        G --> I[Grader System]
+        G --> J[RewardCalculator]
+    end
+    
+    subgraph "Failure Generation"
+        H --> K[L1: Transient Failures]
+        H --> L[L2: Schema Mismatches]
+        H --> M[L3: Cascading Failures]
+    end
+    
+    subgraph "Grading System"
+        I --> N[L1Grader<br/>Classification + Backoff]
+        I --> O[L2Grader<br/>Transformation + Types]
+        I --> P[L3Grader<br/>Root Cause + Idempotency]
+    end
+    
+    subgraph "Reward Calculation"
+        J --> Q[Weighted Formula<br/>0.35×classification<br/>0.25×transformation<br/>0.20×root_cause<br/>0.15×idempotency<br/>+cost_efficiency]
+    end
+    
+    subgraph "Data Models"
+        R[Observation<br/>- task_id<br/>- error_type<br/>- tool_trace<br/>- payload]
+        S[Action<br/>- decision<br/>- backoff_seconds<br/>- transformed_payload<br/>- root_cause_tool]
+        T[Reward<br/>- component scores<br/>- total score]
+    end
+    
+    subgraph "Agent Examples"
+        U[Rule-Based Agent<br/>- Deterministic logic<br/>- Pattern matching]
+        V[LLM Agent<br/>- Groq/OpenAI<br/>- Reasoning chains]
+    end
+    
+    G -.-> R
+    G -.-> S
+    G -.-> T
+    U --> A
+    V --> A
+    
+    style A fill:#e1f5fe
+    style G fill:#f3e5f5
+    style J fill:#e8f5e8
+    style H fill:#fff3e0
+```
+
 ## Overview
 
 AgenticDLQ Triage simulates real-world scenarios where agentic pipelines encounter tool failures. Agents learn to:
@@ -10,6 +73,38 @@ AgenticDLQ Triage simulates real-world scenarios where agentic pipelines encount
 2. **Transform payloads** to fix schema mismatches
 3. **Identify root causes** in cascading failures
 4. **Make retry decisions** with appropriate backoff strategies
+
+## Data Flow
+
+```mermaid
+sequenceDiagram
+    participant Agent
+    participant FastAPI
+    participant EpisodeManager
+    participant FailureGenerator
+    participant Grader
+    participant RewardCalculator
+    
+    Agent->>FastAPI: POST /reset {seed: 42}
+    FastAPI->>EpisodeManager: reset(seed)
+    EpisodeManager->>FailureGenerator: generate(task_level=1)
+    FailureGenerator-->>EpisodeManager: L1 scenario
+    EpisodeManager-->>FastAPI: observation
+    FastAPI-->>Agent: {observation, info}
+    
+    Agent->>FastAPI: POST /step {decision: "RETRY", backoff_seconds: 32}
+    FastAPI->>EpisodeManager: step(action)
+    EpisodeManager->>Grader: grade(action, scenario)
+    Grader-->>EpisodeManager: scores
+    EpisodeManager->>RewardCalculator: compute(scores, retry_count)
+    RewardCalculator-->>EpisodeManager: reward
+    EpisodeManager->>FailureGenerator: generate(task_level=2)
+    FailureGenerator-->>EpisodeManager: L2 scenario
+    EpisodeManager-->>FastAPI: observation, reward, done, info
+    FastAPI-->>Agent: {observation, reward, done, info}
+    
+    Note over Agent,RewardCalculator: Process repeats for L2, L3 tasks
+```
 
 ## Task Levels
 
