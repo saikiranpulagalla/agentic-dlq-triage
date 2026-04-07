@@ -12,9 +12,9 @@ graph TB
     
     subgraph "FastAPI Server"
         B --> C[FastAPI App]
-        C --> D[/reset Endpoint]
-        C --> E[/step Endpoint] 
-        C --> F[/state Endpoint]
+        C --> D[Reset Endpoint]
+        C --> E[Step Endpoint] 
+        C --> F[State Endpoint]
     end
     
     subgraph "Core Engine"
