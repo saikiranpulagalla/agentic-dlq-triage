@@ -104,8 +104,8 @@ def run_episode(agent_fn, seed: int = 42) -> list[float]:
         obs = result["observation"]
         scores.append(reward)
 
-        print(f"[STEP] step=1 action={action_str} reward={reward:.2f} done={str(done).lower()} error=null", flush=True)
-        print(f"[END] success=true steps=1 score={reward:.2f} rewards={reward:.2f}", flush=True)
+        print(f"[STEP] action={action_str}", flush=True)
+        print(f"[END] task={task_id} score={reward:.2f} steps=1", flush=True)
 
         step_num += 1
 
@@ -179,7 +179,7 @@ def run_llm_agent(seed: int = 42) -> list[float]:
             )
             return json.loads(raw)
         except Exception as e:
-            print(f"[STEP] step=0 action=ESCALATE reward=0.00 done=false error={e}", flush=True)
+            print(f"[STEP] action=ESCALATE error={str(e)}", flush=True)
             return {
                 "decision": "ESCALATE",
                 "transformed_payload": None,
