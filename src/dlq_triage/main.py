@@ -101,12 +101,44 @@ async def get_state() -> dict:
 
 @app.get("/health")
 async def health() -> dict:
-    """Health check endpoint.
-    
-    Returns:
-        Health status
-    """
+    """Health check endpoint."""
     return {"status": "healthy"}
+
+
+@app.get("/metadata")
+async def metadata() -> dict:
+    """OpenEnv metadata endpoint."""
+    return {
+        "name": "agentic-dlq-triage",
+        "description": "OpenEnv environment for training RL agents to diagnose and recover from production tool-call failures.",
+        "version": "1.0.0",
+        "author": "Pulagalla Sai Kiran",
+        "tags": ["agentic", "reliability", "tool-calling", "error-recovery"],
+    }
+
+
+@app.get("/schema")
+async def schema() -> dict:
+    """OpenEnv schema endpoint — returns action, observation, and state schemas."""
+    return {
+        "observation": Observation.model_json_schema(),
+        "action": Action.model_json_schema(),
+        "state": EpisodeState.model_json_schema(),
+    }
+
+
+@app.post("/mcp")
+async def mcp(request: dict) -> dict:
+    """MCP JSON-RPC endpoint."""
+    return {
+        "jsonrpc": "2.0",
+        "id": request.get("id", 1),
+        "result": {
+            "name": "agentic-dlq-triage",
+            "version": "1.0.0",
+            "capabilities": ["reset", "step", "state"],
+        },
+    }
 
 
 def main():
