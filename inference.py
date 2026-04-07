@@ -82,19 +82,24 @@ TASK_IDS = ["task_l1", "task_l2", "task_l3"]
 def run_episode(agent_fn, seed: int = 42) -> list[float]:
     """Run one full episode and return per-task scores."""
     scores = []
+    all_rewards = []
     resp = requests.post(f"{BASE_URL}/reset", json={"seed": seed})
     resp.raise_for_status()
     data = resp.json()
     obs = data["observation"]
     done = False
     step_num = 0
+    total_steps = 0
 
     while not done:
         task_id = TASK_IDS[step_num] if step_num < len(TASK_IDS) else f"task_{step_num}"
+        
+        # Print START line at beginning of each task
+        if total_steps == 0 or step_num == 0:
+            print(f"[START] task={task_id} env=agentic-dlq-triage model={MODEL_NAME}", flush=True)
+        
         action = agent_fn(obs)
         action_str = action.get("decision", "UNKNOWN")
-
-        print(f"[START] task={task_id} env=agentic-dlq-triage model={MODEL_NAME}", flush=True)
 
         step_resp = requests.post(f"{BASE_URL}/step", json=action)
         step_resp.raise_for_status()
@@ -106,11 +111,17 @@ def run_episode(agent_fn, seed: int = 42) -> list[float]:
         done = result["done"]
         obs = result["observation"]
         scores.append(reward)
+        all_rewards.append(reward)
+        total_steps += 1
 
-        print(f"[STEP] action={action_str}", flush=True)
-        print(f"[END] task={task_id} score={reward:.2f} steps=1", flush=True)
+        # Print STEP line after each env.step()
+        print(f"[STEP] step={total_steps} action={action_str} reward={reward:.2f} done={str(done).lower()} error=null", flush=True)
 
         step_num += 1
+
+    # Print END line after episode completes
+    rewards_str = ",".join([f"{r:.2f}" for r in all_rewards])
+    print(f"[END] success=true steps={total_steps} rewards={rewards_str}", flush=True)
 
     return scores
 
@@ -182,7 +193,7 @@ def run_llm_agent(seed: int = 42) -> list[float]:
             )
             return json.loads(raw)
         except Exception as e:
-            print(f"[STEP] action=ESCALATE", flush=True)
+            # Don't print STEP here - it will be printed in run_episode
             return {
                 "decision": "ESCALATE",
                 "transformed_payload": None,
@@ -198,7 +209,10 @@ def main():
     """Run both agents and print comparison table."""
     model_label = MODEL_NAME.split("/")[-1][:20]
 
+    print("Running rule-based agent...")
     rule_scores = run_rule_based(seed=42)
+    
+    print("\nRunning LLM agent...")
     llm_scores = run_llm_agent(seed=42)
 
     print("\n" + "=" * 52)
