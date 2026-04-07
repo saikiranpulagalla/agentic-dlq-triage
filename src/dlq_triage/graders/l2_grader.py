@@ -44,8 +44,11 @@ class L2Grader:
             if _types_match(action.transformed_payload, expected_payload):
                 score += 0.4
 
-            # Check if payloads are exactly equal
-            if action.transformed_payload == expected_payload:
+            # Check if all expected keys match exactly (extra keys are fine)
+            if all(
+                action.transformed_payload.get(k) == v
+                for k, v in expected_payload.items()
+            ):
                 score += 0.2
 
             return score

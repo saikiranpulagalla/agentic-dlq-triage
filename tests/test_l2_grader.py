@@ -65,14 +65,14 @@ def test_l2_wrong_action_escalate(l2_scenario):
 
 
 def test_l2_partial_payload(l2_scenario):
-    """Partial payload with correct types should score 0.8."""
+    """Payload with extra keys but all expected keys correct should score 1.0."""
     action = Action(
         decision="TRANSFORM_AND_RETRY",
         transformed_payload={"amount": 150.00, "currency": "USD", "extra": "field"},
     )
     score = L2Grader.grade(action, l2_scenario)
-    # Should match types (0.4) but not exact (0.2) = 0.8
-    assert score == 0.8
+    # All expected keys present with correct types and values = 1.0
+    assert score == 1.0
 
 
 def test_l2_grader_never_raises():
