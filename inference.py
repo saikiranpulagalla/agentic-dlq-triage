@@ -1,6 +1,7 @@
 """AgenticDLQ Triage — Baseline inference script
 
 Runs two agents against the environment and prints a comparison table.
+Updated for hackathon submission compatibility.
 """
 
 import os
