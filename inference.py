@@ -99,7 +99,10 @@ def run_episode(agent_fn, seed: int = 42) -> list[float]:
         step_resp = requests.post(f"{BASE_URL}/step", json=action)
         step_resp.raise_for_status()
         result = step_resp.json()
-        reward = round(float(result["reward"]["total"]), 2)
+        raw_reward = float(result["reward"]["total"])
+        # Cap the reward as suggested in Discord
+        reward = max(0.05, min(0.95, raw_reward))
+        reward = round(reward, 2)
         done = result["done"]
         obs = result["observation"]
         scores.append(reward)
@@ -179,7 +182,7 @@ def run_llm_agent(seed: int = 42) -> list[float]:
             )
             return json.loads(raw)
         except Exception as e:
-            print(f"[STEP] action=ESCALATE error={str(e)}", flush=True)
+            print(f"[STEP] action=ESCALATE", flush=True)
             return {
                 "decision": "ESCALATE",
                 "transformed_payload": None,
