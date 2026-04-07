@@ -3,7 +3,7 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Copy project files
-COPY pyproject.toml requirements.txt ./
+COPY pyproject.toml uv.lock requirements.txt ./
 COPY src/ ./src/
 COPY openenv.yaml ./
 
