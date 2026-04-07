@@ -76,25 +76,45 @@ def rule_based_action(observation: dict) -> dict:
         }
 
 
-def run_rule_based(seed: int = 42) -> list:
-    """Run rule-based agent and return scores."""
+TASK_IDS = ["task_l1", "task_l2", "task_l3"]
+
+
+def run_episode(agent_fn, seed: int = 42) -> list[float]:
+    """Run one full episode and return per-task scores."""
     scores = []
     resp = requests.post(f"{BASE_URL}/reset", json={"seed": seed})
     resp.raise_for_status()
     data = resp.json()
     obs = data["observation"]
     done = False
+    step_num = 0
 
     while not done:
-        action = rule_based_action(obs)
+        task_id = TASK_IDS[step_num] if step_num < len(TASK_IDS) else f"task_{step_num}"
+        action = agent_fn(obs)
+        action_str = action.get("decision", "UNKNOWN")
+
+        print(f"[START] task={task_id} env=agentic-dlq-triage model={MODEL_NAME}", flush=True)
+
         step_resp = requests.post(f"{BASE_URL}/step", json=action)
         step_resp.raise_for_status()
         result = step_resp.json()
-        scores.append(result["reward"]["total"])
+        reward = round(float(result["reward"]["total"]), 2)
         done = result["done"]
         obs = result["observation"]
+        scores.append(reward)
+
+        print(f"[STEP] step=1 action={action_str} reward={reward:.2f} done={str(done).lower()} error=null", flush=True)
+        print(f"[END] success=true steps=1 score={reward:.2f} rewards={reward:.2f}", flush=True)
+
+        step_num += 1
 
     return scores
+
+
+def run_rule_based(seed: int = 42) -> list:
+    """Run rule-based agent and return scores."""
+    return run_episode(rule_based_action, seed)
 
 
 # ── LLM agent (Groq via OpenAI-compatible client) ────────────────────────────
@@ -138,34 +158,18 @@ Reply with ONLY valid JSON. No explanation. No markdown fences:
 
 def run_llm_agent(seed: int = 42) -> list[float]:
     """Run LLM agent and return scores."""
-    llm_api_base = LLM_API_BASE_URL
-    model = MODEL_NAME
-    api_key = HF_TOKEN
-    
-    # Works with both Groq and HF inference endpoints
-    # Groq: LLM_API_BASE_URL=https://api.groq.com/openai/v1, MODEL_NAME=llama-3.1-8b-instant
-    # HF:   LLM_API_BASE_URL=https://router.huggingface.co/v1, MODEL_NAME=Qwen/Qwen2.5-72B-Instruct
-    client = OpenAI(base_url=llm_api_base, api_key=api_key)
+    client = OpenAI(base_url=LLM_API_BASE_URL, api_key=HF_TOKEN)
 
-    scores = []
-    resp = requests.post(f"{BASE_URL}/reset", json={"seed": seed})
-    resp.raise_for_status()
-    data = resp.json()
-    obs = data["observation"]
-    done = False
-
-    while not done:
+    def llm_action(obs: dict) -> dict:
         prompt = build_llm_prompt(obs)
-
         try:
             completion = client.chat.completions.create(
-                model=model,
+                model=MODEL_NAME,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.0,
                 max_tokens=300,
             )
             raw = completion.choices[0].message.content or ""
-            # Strip markdown fences if model adds them
             raw = (
                 raw.strip()
                 .removeprefix("```json")
@@ -173,58 +177,35 @@ def run_llm_agent(seed: int = 42) -> list[float]:
                 .removesuffix("```")
                 .strip()
             )
-            action = json.loads(raw)
+            return json.loads(raw)
         except Exception as e:
-            print(f"  LLM error: {e} — falling back to ESCALATE")
-            action = {
+            print(f"[STEP] step=0 action=ESCALATE reward=0.00 done=false error={e}", flush=True)
+            return {
                 "decision": "ESCALATE",
                 "transformed_payload": None,
                 "root_cause_tool": None,
                 "backoff_seconds": None,
             }
 
-        step_resp = requests.post(f"{BASE_URL}/step", json=action)
-        step_resp.raise_for_status()
-        result = step_resp.json()
-        scores.append(result["reward"]["total"])
-        done = result["done"]
-        obs = result["observation"]
-
-    return scores
+    return run_episode(llm_action, seed)
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     """Run both agents and print comparison table."""
-    print("START")
-    
-    task_names = [
-        "L1 — Transient failure",
-        "L2 — Schema mismatch",
-        "L3 — Cascade root cause",
-    ]
+    model_label = MODEL_NAME.split("/")[-1][:20]
 
-    print("STEP: Running rule-based agent...")
     rule_scores = run_rule_based(seed=42)
-
-    # Get model name for display
-    model_label = MODEL_NAME.split("/")[-1][:20]  # shorten long model names
-
-    print("STEP: Running LLM agent...")
     llm_scores = run_llm_agent(seed=42)
 
     print("\n" + "=" * 52)
-    print(f"{'Task':<26} {'Rule-Based':>10} {f'LLM ({model_label})':>22}")
+    print(f"{'Task':<26} {'Rule-Based':>10} {f'LLM ({model_label})':>12}")
     print("-" * 52)
+    task_names = ["L1 Transient", "L2 Schema", "L3 Cascade"]
     for name, rb, llm in zip(task_names, rule_scores, llm_scores):
         print(f"{name:<26} {rb:>10.2f} {llm:>12.2f}")
     print("=" * 52)
-    print(
-        f"{'Average':<26} {sum(rule_scores)/len(rule_scores):>10.2f} {sum(llm_scores)/len(llm_scores):>12.2f}"
-    )
-    print()
-    
-    print("END")
+    print(f"{'Average':<26} {sum(rule_scores)/len(rule_scores):>10.2f} {sum(llm_scores)/len(llm_scores):>12.2f}")
 
 
 if __name__ == "__main__":

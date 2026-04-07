@@ -15,18 +15,41 @@ tasks:
   - id: task_l1
     name: Transient failure recovery
     difficulty: easy
+    max_steps: 10
     description: >
       Agent receives a rate-limit failure trace and must decide to RETRY
       with the correct backoff window.
+    grader:
+      type: llm
+      prompt_template: >
+        Score this agent response 0.0 to 1.0 based on whether it correctly
+        identified a transient error and chose RETRY with appropriate backoff.
+        1.0 = correct RETRY with backoff ~32s, 0.0 = wrong decision.
+
   - id: task_l2
     name: Schema mismatch transform
     difficulty: medium
+    max_steps: 15
     description: >
       Agent must identify a type mismatch, produce the corrected payload,
       and select TRANSFORM_AND_RETRY.
+    grader:
+      type: llm
+      prompt_template: >
+        Score this agent response 0.0 to 1.0 based on whether it correctly
+        identified a schema mismatch and chose TRANSFORM_AND_RETRY with
+        a corrected payload. 1.0 = correct transform, 0.0 = wrong decision.
+
   - id: task_l3
     name: Cascade root cause diagnosis
     difficulty: hard
+    max_steps: 20
     description: >
       Three linked tools — one timeout causes downstream failure. Agent must
       identify root cause, assess idempotency, and scope the retry correctly.
+    grader:
+      type: llm
+      prompt_template: >
+        Score this agent response 0.0 to 1.0 based on whether it correctly
+        identified the root cause tool in a cascading failure and chose RETRY.
+        1.0 = correct root cause identified, 0.0 = wrong or missing root cause.
