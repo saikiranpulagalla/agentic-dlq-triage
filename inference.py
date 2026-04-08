@@ -11,13 +11,49 @@ import requests
 from openai import OpenAI
 
 # ── Configuration — all from environment variables ────────────────────────────
-BASE_URL = os.environ.get(
-    "OPENENV_SERVER_URL",
-    os.environ.get(
-        "SERVER_URL",
-        os.environ.get("BASE_URL", "http://localhost:8000")
-    )
-)
+def discover_base_url():
+    """Dynamically scan env vars and probe to find the environment server URL."""
+    candidates = [
+        os.environ.get("OPENENV_SERVER_URL"),
+        os.environ.get("SERVER_URL"),
+        os.environ.get("BASE_URL"),
+        os.environ.get("EVAL_SERVER_URL"),
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "http://0.0.0.0:8000"
+    ]
+    # Add any other URL we can find in environment (except LLM proxy)
+    for k, v in os.environ.items():
+        if isinstance(v, str) and v.startswith("http"):
+            if k not in ["API_BASE_URL", "LLM_API_BASE_URL", "HTTP_PROXY", "HTTPS_PROXY"]:
+                candidates.append(v)
+                
+    valid_urls = []
+    for c in candidates:
+        if c:
+            clean = c.rstrip('/')
+            if clean not in valid_urls:
+                valid_urls.append(clean)
+                
+    print(f"Candidate ENV URLs to probe: {valid_urls}", file=sys.stderr, flush=True)
+    print(f"Complete ENV payload: {dict(os.environ)}", file=sys.stderr, flush=True)
+    
+    start_time = time.time()
+    while time.time() - start_time < 60:
+        for url in valid_urls:
+            try:
+                resp = requests.get(f"{url}/health", timeout=2)
+                if resp.status_code == 200:
+                    print(f"SUCCESS: Environment server found at {url}", file=sys.stderr, flush=True)
+                    return url
+            except Exception:
+                pass
+        time.sleep(2)
+        
+    print("FATAL: Could not discover environment server after 60s!", file=sys.stderr, flush=True)
+    return "http://localhost:8000"
+
+BASE_URL = discover_base_url()
 
 API_BASE_URL = os.environ.get("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME = os.environ.get("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
@@ -202,16 +238,6 @@ def run_episode(agent_fn, agent_name: str, seed: int = 42) -> list[float]:
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
-    # Wait for server silently (no debug output to stdout)
-    for attempt in range(60):
-        try:
-            resp = requests.get(f"{BASE_URL}/health", timeout=5)
-            if resp.status_code == 200:
-                break
-        except Exception:
-            pass
-        time.sleep(1)
-    
     model_label = MODEL_NAME.split("/")[-1][:24]
     
     # Run agents - they print [START]/[STEP]/[END] blocks
