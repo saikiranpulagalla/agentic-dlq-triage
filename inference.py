@@ -14,26 +14,24 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
-# ── Read BASE_URL from environment variable ──────────────────────────────────
+# ── Read BASE_URL (Environment Server) from environment variable ──────────────
 # The evaluator provides the server URL via env var. Check ALL possible names.
-# API_BASE_URL is the documented hackathon env var — check it FIRST.
 BASE_URL = os.environ.get(
-    "API_BASE_URL",
+    "OPENENV_SERVER_URL",
     os.environ.get(
-        "OPENENV_SERVER_URL",
+        "SERVER_URL",
         os.environ.get(
-            "SERVER_URL",
-            os.environ.get(
-                "BASE_URL",
-                "http://localhost:8000"
-            )
+            "BASE_URL",
+            "http://localhost:8000"
         )
     )
 )
 
+# ── Read LLM API configuration from environment variable ──────────────────────
+# The evaluator explicitly injects a LiteLLM proxy via API_BASE_URL and API_KEY.
 MODEL_NAME = os.environ.get("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-HF_TOKEN = os.environ.get("HF_TOKEN", "")
-LLM_API_BASE_URL = os.environ.get("LLM_API_BASE_URL", "https://router.huggingface.co/v1")
+LLM_API_BASE_URL = os.environ.get("API_BASE_URL", os.environ.get("LLM_API_BASE_URL", "https://router.huggingface.co/v1"))
+LLM_API_KEY = os.environ.get("API_KEY", os.environ.get("HF_TOKEN", ""))
 
 
 # ── Rule-based agent ──────────────────────────────────────────────────────────
@@ -207,7 +205,7 @@ Reply with ONLY valid JSON. No explanation. No markdown fences:
 def run_llm_agent(seed: int = 42) -> list[float]:
     """Run LLM agent and return scores."""
     import sys
-    client = OpenAI(base_url=LLM_API_BASE_URL, api_key=HF_TOKEN)
+    client = OpenAI(base_url=LLM_API_BASE_URL, api_key=LLM_API_KEY)
 
     def llm_action(obs: dict) -> dict:
         prompt = build_llm_prompt(obs)
