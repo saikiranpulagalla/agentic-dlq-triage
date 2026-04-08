@@ -43,12 +43,12 @@ class Action(BaseModel):
 class Reward(BaseModel):
     """Reward breakdown for an action."""
 
-    classification_score: float = Field(..., description="Score for correct error classification")
-    transformation_score: float = Field(..., description="Score for payload transformation")
-    root_cause_score: float = Field(..., description="Score for root cause identification")
-    idempotency_score: float = Field(..., description="Score for idempotency handling")
+    classification_score: float = Field(..., description="Score for correct error classification (0.01-0.99)")
+    transformation_score: float = Field(..., description="Score for payload transformation (0.01-0.99)")
+    root_cause_score: float = Field(..., description="Score for root cause identification (0.01-0.99)")
+    idempotency_score: float = Field(..., description="Score for idempotency handling (0.01-0.99)")
     cost_efficiency_score: float = Field(..., description="Score for cost efficiency")
-    total: float = Field(..., description="Total reward (clamped to [0.0, 1.0])")
+    total: float = Field(..., description="Total reward (strictly between 0.01 and 0.99)")
 
 
 class EpisodeState(BaseModel):

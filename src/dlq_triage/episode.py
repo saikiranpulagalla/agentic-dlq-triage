@@ -66,23 +66,23 @@ class EpisodeManager:
         # Grade the action based on current task level
         if self.task_level == 1:
             classification_score = L1Grader.grade(action, self.current_scenario)
-            transformation_score = 0.0
-            root_cause_score = 0.0
-            idempotency_score = 0.0
+            transformation_score = 0.01  # Not applicable, use minimum valid score
+            root_cause_score = 0.01      # Not applicable, use minimum valid score
+            idempotency_score = 0.01     # Not applicable, use minimum valid score
         elif self.task_level == 2:
-            classification_score = 0.0
+            classification_score = 0.01  # Not applicable, use minimum valid score
             transformation_score = L2Grader.grade(action, self.current_scenario)
-            root_cause_score = 0.0
-            idempotency_score = 0.0
+            root_cause_score = 0.01      # Not applicable, use minimum valid score
+            idempotency_score = 0.01     # Not applicable, use minimum valid score
         elif self.task_level == 3:
-            classification_score = 0.0
-            transformation_score = 0.0
+            classification_score = 0.01  # Not applicable, use minimum valid score
+            transformation_score = 0.01  # Not applicable, use minimum valid score
             root_cause_score, idempotency_score = L3Grader.grade(action, self.current_scenario)
         else:
-            classification_score = 0.0
-            transformation_score = 0.0
-            root_cause_score = 0.0
-            idempotency_score = 0.0
+            classification_score = 0.01
+            transformation_score = 0.01
+            root_cause_score = 0.01
+            idempotency_score = 0.01
         
         # Compute reward
         retry_count = self.current_scenario.get("retry_count", 0)
