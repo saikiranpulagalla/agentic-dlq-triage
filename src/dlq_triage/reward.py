@@ -23,17 +23,17 @@ class RewardCalculator:
                     0.20 * root_cause_score +
                     0.15 * idempotency_score +
                     cost_efficiency)
-        - total = clamp(reward, 0.0, 1.0)
+        - total = clamp(reward, 0.01, 0.99) [strictly between 0 and 1]
         
         Args:
-            classification_score: Score for error classification (0.0-1.0)
-            transformation_score: Score for payload transformation (0.0-1.0)
-            root_cause_score: Score for root cause identification (0.0-1.0)
-            idempotency_score: Score for idempotency handling (0.0-1.0)
+            classification_score: Score for error classification (0.01-0.99)
+            transformation_score: Score for payload transformation (0.01-0.99)
+            root_cause_score: Score for root cause identification (0.01-0.99)
+            idempotency_score: Score for idempotency handling (0.01-0.99)
             retry_count: Number of retries attempted
             
         Returns:
-            Reward object with breakdown and total
+            Reward object with breakdown and total (strictly between 0 and 1)
         """
         # Calculate cost efficiency penalty/bonus
         cost_efficiency = -0.1 if retry_count > 3 else 0.05
@@ -47,8 +47,8 @@ class RewardCalculator:
             + cost_efficiency
         )
 
-        # Clamp to [0.0, 1.0]
-        total = max(0.0, min(1.0, reward))
+        # Clamp to (0.01, 0.99) - strictly between 0 and 1, never exactly 0.0 or 1.0
+        total = max(0.01, min(0.99, reward))
 
         return Reward(
             classification_score=classification_score,

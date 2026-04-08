@@ -8,66 +8,67 @@ from dlq_triage.reward import RewardCalculator
 
 
 def test_reward_max_inputs():
-    """Max inputs should score 1.0."""
+    """Max inputs should score 0.99 (clamped from 1.0)."""
     reward = RewardCalculator.compute(
-        classification_score=1.0,
-        transformation_score=1.0,
-        root_cause_score=1.0,
-        idempotency_score=1.0,
+        classification_score=0.99,
+        transformation_score=0.99,
+        root_cause_score=0.99,
+        idempotency_score=0.99,
         retry_count=1,
     )
-    assert reward.total == 1.0
+    # (0.35 + 0.25 + 0.20 + 0.15) * 0.99 + 0.05 = 0.95 * 0.99 + 0.05 = 0.9405 + 0.05 = 0.9905, clamped to 0.99
+    assert reward.total == 0.99
 
 
 def test_reward_all_zeros():
-    """All zeros should score 0.05 (cost efficiency bonus)."""
+    """All zeros should score 0.0595 (cost efficiency bonus)."""
     reward = RewardCalculator.compute(
-        classification_score=0.0,
-        transformation_score=0.0,
-        root_cause_score=0.0,
-        idempotency_score=0.0,
+        classification_score=0.01,
+        transformation_score=0.01,
+        root_cause_score=0.01,
+        idempotency_score=0.01,
         retry_count=1,
     )
-    assert reward.total == 0.05
+    # (0.35 + 0.25 + 0.20 + 0.15) * 0.01 + 0.05 = 0.95 * 0.01 + 0.05 = 0.0095 + 0.05 = 0.0595
+    assert abs(reward.total - 0.0595) < 0.001
 
 
 def test_reward_high_retry_count_penalty():
     """High retry count (>3) should apply -0.1 penalty."""
     reward = RewardCalculator.compute(
-        classification_score=1.0,
-        transformation_score=1.0,
-        root_cause_score=1.0,
-        idempotency_score=1.0,
+        classification_score=0.99,
+        transformation_score=0.99,
+        root_cause_score=0.99,
+        idempotency_score=0.99,
         retry_count=5,
     )
-    # (0.35 + 0.25 + 0.20 + 0.15) - 0.1 = 0.95 - 0.1 = 0.85
-    assert abs(reward.total - 0.85) < 0.001
+    # (0.35 + 0.25 + 0.20 + 0.15) * 0.99 - 0.1 = 0.95 * 0.99 - 0.1 = 0.9405 - 0.1 = 0.8405
+    assert abs(reward.total - 0.8405) < 0.001
 
 
 def test_reward_clamping_lower():
-    """Negative reward should clamp to 0.0."""
+    """Negative reward should clamp to 0.01."""
     reward = RewardCalculator.compute(
-        classification_score=0.0,
-        transformation_score=0.0,
-        root_cause_score=0.0,
-        idempotency_score=0.0,
+        classification_score=0.01,
+        transformation_score=0.01,
+        root_cause_score=0.01,
+        idempotency_score=0.01,
         retry_count=10,
     )
-    # 0.0 - 0.1 = -0.1, clamped to 0.0
-    assert reward.total == 0.0
+    # (0.35 + 0.25 + 0.20 + 0.15) * 0.01 - 0.1 = 0.95 * 0.01 - 0.1 = 0.0095 - 0.1 = -0.0905, clamped to 0.01
+    assert reward.total == 0.01
 
 
 def test_reward_clamping_upper():
-    """Reward > 1.0 should clamp to 1.0."""
-    # This shouldn't happen with the formula, but test clamping
+    """Reward > 0.99 should clamp to 0.99."""
     reward = RewardCalculator.compute(
-        classification_score=1.0,
-        transformation_score=1.0,
-        root_cause_score=1.0,
-        idempotency_score=1.0,
+        classification_score=0.99,
+        transformation_score=0.99,
+        root_cause_score=0.99,
+        idempotency_score=0.99,
         retry_count=1,
     )
-    assert reward.total <= 1.0
+    assert reward.total <= 0.99
 
 
 def test_reward_weighted_formula():
