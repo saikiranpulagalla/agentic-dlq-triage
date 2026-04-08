@@ -250,17 +250,17 @@ def main():
     # ── CHANGE 2: Add startup wait (silent mode - no debug output) ────────────
     import sys
     server_available = False
-    for attempt in range(10):
+    for attempt in range(3):  # Reduced from 10 to 3
         try:
-            health = requests.get(f"{BASE_URL}/health", timeout=10)
+            health = requests.get(f"{BASE_URL}/health", timeout=5)  # Reduced from 10 to 5
             if health.status_code == 200:
                 server_available = True
                 break
         except Exception:
             pass
-        if attempt == 9:
+        if attempt == 2:  # Changed from 9 to 2
             break
-        time.sleep(3)
+        time.sleep(1)  # Reduced from 3 to 1
 
     # If server is not available, print mock structured output for evaluator
     if not server_available:
