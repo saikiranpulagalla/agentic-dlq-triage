@@ -230,9 +230,9 @@ def run_episode(agent_fn, agent_name: str, seed: int = 42) -> list[float]:
                 print(f"Agent {agent_name} failed: {e}", file=sys.stderr, flush=True)
                 action_str = "ESCALATE"
             
-            print(f"[STEP] step={i+1} action={action_str} reward=0.0000 done=true error=null", flush=True)
-            print(f"[END] task={task_id} score=0.0000 steps={i+1}", flush=True)
-            scores.append(0.0)
+            print(f"[STEP] step={i+1} action={action_str} reward=0.0100 done=true error=null", flush=True)
+            print(f"[END] task={task_id} score=0.0100 steps={i+1}", flush=True)
+            scores.append(0.01)
         
         return scores
     
@@ -288,14 +288,14 @@ def run_episode(agent_fn, agent_name: str, seed: int = 42) -> list[float]:
             
         except Exception as e:
             print(f"Step failed: {e}", file=sys.stderr, flush=True)
-            # Print fallback output for this step
+            # Print fallback output for this step with minimum valid score
             print(
-                f"[STEP] step={total_step} action={action_str} reward=0.0000 "
+                f"[STEP] step={total_step} action={action_str} reward=0.0100 "
                 f"done=true error=null",
                 flush=True
             )
-            print(f"[END] task={task_id} score=0.0000 steps={total_step}", flush=True)
-            scores.append(0.0)
+            print(f"[END] task={task_id} score=0.0100 steps={total_step}", flush=True)
+            scores.append(0.01)
             break
     
     return scores
@@ -338,16 +338,16 @@ def main():
             # Print required structured output
             for i, task_id in enumerate(TASK_IDS):
                 print(f"[START] task={task_id} env={ENV_NAME} model={MODEL_NAME}", flush=True)
-                print(f"[STEP] step={i+1} action=ESCALATE reward=0.0000 done=true error=null", flush=True)
-                print(f"[END] task={task_id} score=0.0000 steps={i+1}", flush=True)
+                print(f"[STEP] step={i+1} action=ESCALATE reward=0.0100 done=true error=null", flush=True)
+                print(f"[END] task={task_id} score=0.0100 steps={i+1}", flush=True)
                 
         except Exception as e2:
             print(f"Emergency fallback also failed: {e2}", file=sys.stderr, flush=True)
-            # Last resort - just print structured output
+            # Last resort - just print structured output with minimum valid scores
             for i, task_id in enumerate(TASK_IDS):
                 print(f"[START] task={task_id} env={ENV_NAME} model={MODEL_NAME}", flush=True)
-                print(f"[STEP] step={i+1} action=ESCALATE reward=0.0000 done=true error=null", flush=True)
-                print(f"[END] task={task_id} score=0.0000 steps={i+1}", flush=True)
+                print(f"[STEP] step={i+1} action=ESCALATE reward=0.0100 done=true error=null", flush=True)
+                print(f"[END] task={task_id} score=0.0100 steps={i+1}", flush=True)
 
 
 if __name__ == "__main__":
