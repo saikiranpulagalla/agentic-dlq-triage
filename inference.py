@@ -241,33 +241,21 @@ def run_llm_agent(seed: int = 42) -> list[float]:
 def main():
     """Run both agents and print comparison table."""
 
-    # Wait for the environment server to be ready (up to 15 seconds)
+    # Wait for the environment server to be ready (up to 60 seconds)
     import sys
-    server_ready = False
-    for attempt in range(3):  # 3 attempts × 5 seconds = 15 seconds max
+    for attempt in range(60):
         try:
             health = requests.get(f"{BASE_URL}/health", timeout=5)
             if health.status_code == 200:
-                server_ready = True
+                print("Server is healthy! Continuing...", file=sys.stderr, flush=True)
                 break
         except Exception:
             pass
-        if attempt < 2:  # Don't sleep after last attempt
-            time.sleep(5)
+        if attempt % 5 == 0:
+            print(f"Waiting for server... (attempt {attempt}/60)", file=sys.stderr, flush=True)
+        time.sleep(1)
 
     model_label = MODEL_NAME.split("/")[-1][:20]
-
-    # If server is not ready, print mock output and exit
-    if not server_ready:
-        print(f"WARNING: Server not ready, using mock output", file=sys.stderr, flush=True)
-        mock_actions = ["RETRY", "TRANSFORM_AND_RETRY", "RETRY"]
-        mock_rewards = [0.40, 0.30, 0.40]
-        mock_done = [False, False, True]  # Last task is done
-        for task_id, action, reward, done in zip(TASK_IDS, mock_actions, mock_rewards, mock_done):
-            print(f"[START] task={task_id} env=agentic-dlq-triage model={MODEL_NAME}", flush=True)
-            print(f"[STEP] step=1 action={action} reward={reward:.2f} done={str(done).lower()} error=null", flush=True)
-            print(f"[END] task={task_id} score={reward:.2f} steps=1", flush=True)
-        return
 
     # Run agents - they print [START]/[STEP]/[END] blocks
     rule_scores = []
@@ -282,17 +270,7 @@ def main():
     except Exception as e:
         print(f"LLM agent failed: {e}", file=sys.stderr, flush=True)
 
-    # If both agents failed, print mock output as final fallback
-    if len(rule_scores) == 0 and len(llm_scores) == 0:
-        print(f"WARNING: Both agents failed, using mock output", file=sys.stderr, flush=True)
-        mock_actions = ["RETRY", "TRANSFORM_AND_RETRY", "RETRY"]
-        mock_rewards = [0.40, 0.30, 0.40]
-        mock_done = [False, False, True]  # Last task is done
-        for task_id, action, reward, done in zip(TASK_IDS, mock_actions, mock_rewards, mock_done):
-            print(f"[START] task={task_id} env=agentic-dlq-triage model={MODEL_NAME}", flush=True)
-            print(f"[STEP] step=1 action={action} reward={reward:.2f} done={str(done).lower()} error=null", flush=True)
-            print(f"[END] task={task_id} score={reward:.2f} steps=1", flush=True)
-        return
+    # Remove mock fallbacks entirely. The evaluator MUST see actual LLM inferences.
 
     # Print summary table to stderr to avoid interfering with structured output
     print("\n" + "=" * 52, file=sys.stderr, flush=True)
