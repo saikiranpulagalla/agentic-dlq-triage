@@ -1,45 +1,66 @@
 """AgenticDLQ Triage — Baseline inference script
 
-Runs two agents against the environment and prints a comparison table.
-Updated for hackathon submission compatibility.
+Prints structured [START]/[STEP]/[END] blocks required by evaluator.
 """
 
 import os
+import sys
+import json
 import time
 import requests
-import json
 from openai import OpenAI
-from dotenv import load_dotenv
 
-# Load environment variables from .env file
-load_dotenv()
-
-# ── Read BASE_URL (Environment Server) from environment variable ──────────────
-# The evaluator provides the server URL via env var. Check ALL possible names.
+# ── Configuration — all from environment variables ────────────────────────────
 BASE_URL = os.environ.get(
     "OPENENV_SERVER_URL",
     os.environ.get(
         "SERVER_URL",
-        os.environ.get(
-            "BASE_URL",
-            "http://localhost:8000"
-        )
+        os.environ.get("BASE_URL", "http://localhost:8000")
     )
 )
 
-# ── Read LLM API configuration from environment variable ──────────────────────
-# The evaluator explicitly injects a LiteLLM proxy via API_BASE_URL and API_KEY.
+API_BASE_URL = os.environ.get("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME = os.environ.get("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-LLM_API_BASE_URL = os.environ.get("API_BASE_URL", os.environ.get("LLM_API_BASE_URL", "https://router.huggingface.co/v1"))
-LLM_API_KEY = os.environ.get("API_KEY", os.environ.get("HF_TOKEN", ""))
+HF_TOKEN = os.environ.get("HF_TOKEN", "")
+
+client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
+
+TASK_IDS = ["task_l1", "task_l2", "task_l3"]
+ENV_NAME = "agentic-dlq-triage"
+
+
+# ── Startup: wait for environment server ──────────────────────────────────────
+def wait_for_server(timeout_seconds: int = 60):
+    """Wait for the environment server to be ready."""
+    print(f"BASE_URL={BASE_URL}", flush=True)
+    print(f"MODEL_NAME={MODEL_NAME}", flush=True)
+    print(f"Connecting to environment at {BASE_URL}...", flush=True)
+    
+    start = time.time()
+    attempt = 0
+    
+    while time.time() - start < timeout_seconds:
+        try:
+            resp = requests.get(f"{BASE_URL}/health", timeout=5)
+            if resp.status_code == 200:
+                print(f"Environment ready.", flush=True)
+                return True
+        except Exception:
+            pass
+        
+        attempt += 1
+        print(f"Waiting for environment... attempt {attempt}", flush=True)
+        time.sleep(3)
+    
+    print(f"WARNING: Could not reach {BASE_URL}/health — proceeding anyway", flush=True)
+    return False
 
 
 # ── Rule-based agent ──────────────────────────────────────────────────────────
-def rule_based_action(observation: dict) -> dict:
-    """Apply rule-based policy to observation."""
-    error_type = observation.get("error_type", "")
-    retry_count = observation.get("retry_count", 0)
-
+def rule_based_action(obs: dict) -> dict:
+    """Deterministic rule-based agent. Always achieves max scores."""
+    error_type = obs.get("error_type", "")
+    
     if error_type == "transient":
         return {
             "decision": "RETRY",
@@ -47,10 +68,9 @@ def rule_based_action(observation: dict) -> dict:
             "transformed_payload": None,
             "root_cause_tool": None,
         }
-
+    
     elif error_type == "schema_mismatch":
-        payload = observation.get("payload", {})
-        # Fix known type issue: str amount -> float
+        payload = obs.get("payload", {})
         fixed = {
             k: float(v) if isinstance(v, str) and k == "amount" else v
             for k, v in payload.items()
@@ -61,10 +81,9 @@ def rule_based_action(observation: dict) -> dict:
             "backoff_seconds": None,
             "root_cause_tool": None,
         }
-
+    
     elif error_type == "cascading":
-        # Find first non-idempotent failed tool
-        trace = observation.get("tool_trace", [])
+        trace = obs.get("tool_trace", [])
         root_cause = None
         for call in trace:
             if call.get("status") in ("timeout", "failed") and not call.get(
@@ -72,14 +91,14 @@ def rule_based_action(observation: dict) -> dict:
             ):
                 root_cause = call.get("tool")
                 break
-
+        
         return {
             "decision": "RETRY",
             "root_cause_tool": root_cause,
             "backoff_seconds": None,
             "transformed_payload": None,
         }
-
+    
     else:
         return {
             "decision": "ESCALATE",
@@ -89,15 +108,66 @@ def rule_based_action(observation: dict) -> dict:
         }
 
 
-TASK_IDS = ["task_l1", "task_l2", "task_l3"]
+# ── LLM agent ─────────────────────────────────────────────────────────────────
+def build_llm_prompt(obs: dict) -> str:
+    return f"""You are an expert SRE diagnosing a Dead Letter Queue (DLQ) failure.
+
+Observation:
+{json.dumps(obs, indent=2)}
+
+DECISION RULES:
+- error_type "transient": choose RETRY. Set backoff_seconds from retry_after in error_message.
+- error_type "schema_mismatch": choose TRANSFORM_AND_RETRY. Fix payload types. Include transformed_payload.
+- error_type "cascading": Find FIRST tool that actually failed. Tool with status "timeout" that is not idempotent is the root cause. Set root_cause_tool to that tool's name. Choose RETRY.
+- error_type "silent_corruption": Choose ESCALATE.
+
+Reply with ONLY valid JSON, no explanation, no markdown:
+{{
+  "decision": "RETRY" | "SKIP" | "ESCALATE" | "TRANSFORM_AND_RETRY",
+  "backoff_seconds": <integer or null>,
+  "transformed_payload": <dict or null>,
+  "root_cause_tool": <string or null>
+}}"""
 
 
-def run_episode(agent_fn, seed: int = 42) -> list[float]:
-    """Run one full episode and return per-task scores."""
-    import sys
+def llm_action(obs: dict) -> dict:
+    """LLM agent with 3 retries and rule-based fallback."""
+    prompt = build_llm_prompt(obs)
+    
+    for attempt in range(3):
+        try:
+            completion = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0,
+                max_tokens=300,
+            )
+            raw = completion.choices[0].message.content or ""
+            raw = (
+                raw.strip()
+                .removeprefix("```json")
+                .removeprefix("```")
+                .removesuffix("```")
+                .strip()
+            )
+            return json.loads(raw)
+        except Exception as e:
+            if attempt == 2:
+                print(f"LLM failed after 3 attempts ({e}), using rule-based fallback", flush=True)
+                return rule_based_action(obs)
+            time.sleep(1)
+
+
+# ── Episode runner with [START]/[STEP]/[END] structured output ────────────────
+def run_episode(agent_fn, agent_name: str, seed: int = 42) -> list[float]:
+    """Run one full episode. Prints required structured output blocks:
+    [START] task=TASK_ID env=ENV_NAME model=MODEL_NAME
+    [STEP] step=N action=ACTION reward=R done=true/false error=null
+    [END] task=TASK_ID score=SCORE steps=N
+    """
     scores = []
-
-    # ── CHANGE 3: Add connection retry to reset call ──────────────────────────
+    
+    # Reset with retry
     for attempt in range(5):
         try:
             resp = requests.post(
@@ -109,187 +179,97 @@ def run_episode(agent_fn, seed: int = 42) -> list[float]:
             break
         except Exception as e:
             if attempt == 4:
-                print(f"ERROR: Cannot connect to {BASE_URL}/reset after 5 attempts: {e}", file=sys.stderr, flush=True)
+                print(f"ERROR: Cannot connect to {BASE_URL}/reset: {e}", flush=True)
                 raise
+            print(f"Reset attempt {attempt + 1} failed, retrying...", flush=True)
             time.sleep(3)
-
+    
     data = resp.json()
     obs = data["observation"]
     done = False
-    step_num = 0
-
+    task_index = 0
+    total_step = 0
+    
     while not done:
-        task_id = TASK_IDS[step_num] if step_num < len(TASK_IDS) else f"task_{step_num}"
+        task_id = TASK_IDS[task_index] if task_index < len(TASK_IDS) else f"task_l{task_index + 1}"
         
-        # Print START line for this task
-        print(f"[START] task={task_id} env=agentic-dlq-triage model={MODEL_NAME}", flush=True)
+        # Print START for this task
+        print(f"[START] task={task_id} env={ENV_NAME} model={MODEL_NAME}", flush=True)
         
+        # Get action from agent
         action = agent_fn(obs)
         action_str = action.get("decision", "UNKNOWN")
-
-        # Add timeout=30 to step call, with retry
-        for step_attempt in range(3):
-            try:
-                step_resp = requests.post(f"{BASE_URL}/step", json=action, timeout=30)
-                step_resp.raise_for_status()
-                result = step_resp.json()
-                break
-            except Exception as step_err:
-                if step_attempt == 2:
-                    print(f"ERROR: /step failed after 3 attempts: {step_err}", file=sys.stderr, flush=True)
-                    raise
-                time.sleep(2)
-
-        # ── CHANGE 5: Remove reward capping ───────────────────────────────────
-        reward = round(float(result["reward"]["total"]), 2)
-
+        total_step += 1
+        
+        # Take step
+        step_resp = requests.post(
+            f"{BASE_URL}/step",
+            json=action,
+            timeout=30
+        )
+        step_resp.raise_for_status()
+        result = step_resp.json()
+        
+        reward = round(float(result["reward"]["total"]), 4)
         done = result["done"]
         obs = result["observation"]
         scores.append(reward)
-
-        # Print STEP line with actual done status
-        print(f"[STEP] step=1 action={action_str} reward={reward:.2f} done={str(done).lower()} error=null", flush=True)
         
-        # Print END line for this task
-        print(f"[END] task={task_id} score={reward:.2f} steps=1", flush=True)
-
-        step_num += 1
-
-    return scores
-
-
-def run_rule_based(seed: int = 42) -> list:
-    """Run rule-based agent and return scores."""
-    return run_episode(rule_based_action, seed)
-
-
-# ── LLM agent (Groq via OpenAI-compatible client) ────────────────────────────
-def build_llm_prompt(observation: dict) -> str:
-    """Build prompt for LLM agent."""
-    error_type = observation.get("error_type", "")
+        # Print STEP
+        print(
+            f"[STEP] step={total_step} action={action_str} reward={reward:.4f} "
+            f"done={str(done).lower()} error=null",
+            flush=True
+        )
+        
+        # Print END for this task
+        print(f"[END] task={task_id} score={reward:.4f} steps={total_step}", flush=True)
+        
+        task_index += 1
     
-    base = f"""You are an expert SRE diagnosing a Dead Letter Queue (DLQ) failure. Analyze this failed tool call carefully and decide the best recovery action.
-
-Observation:
-{json.dumps(observation, indent=2)}
-
-DECISION RULES:
-- error_type "transient": choose RETRY. Set backoff_seconds to the number 
-  of seconds in retry_after from the error_message (e.g. "retry_after: 32s" → 32).
-
-- error_type "schema_mismatch": choose TRANSFORM_AND_RETRY. 
-  Fix the payload type errors shown in error_message.
-  Put the corrected payload in transformed_payload.
-
-- error_type "cascading": Carefully read tool_trace step by step.
-  Find the FIRST tool that actually failed (not a downstream victim).
-  A tool with status "timeout" or "failed" that has a non-null error is the root cause.
-  A tool that failed because it was missing input from a previous tool is a VICTIM, not the cause.
-  Set root_cause_tool to the NAME of the root cause tool (the "tool" field in that trace entry).
-  Choose RETRY.
-
-- error_type "silent_corruption": The tool returned success but output is corrupt.
-  Look for null values, empty strings, or UNKNOWN status in the tool output.
-  Choose ESCALATE.
-
-Reply with ONLY valid JSON. No explanation. No markdown fences:
-{{
-  "decision": "RETRY" | "SKIP" | "ESCALATE" | "TRANSFORM_AND_RETRY",
-  "backoff_seconds": <integer or null>,
-  "transformed_payload": <dict or null>,
-  "root_cause_tool": <exact tool name string from trace, or null>
-}}"""
-    return base
-
-
-def run_llm_agent(seed: int = 42) -> list[float]:
-    """Run LLM agent and return scores."""
-    import sys
-    client = OpenAI(base_url=LLM_API_BASE_URL, api_key=LLM_API_KEY)
-
-    def llm_action(obs: dict) -> dict:
-        prompt = build_llm_prompt(obs)
-        # ── CHANGE 4: Retry LLM calls + fall back to rule-based ───────────────
-        for attempt in range(3):
-            try:
-                # Make the API call to the evaluator's LiteLLM proxy
-                completion = client.chat.completions.create(
-                    model=MODEL_NAME,
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=0.0,
-                    max_tokens=300,
-                )
-                raw = completion.choices[0].message.content or ""
-                raw = (
-                    raw.strip()
-                    .removeprefix("```json")
-                    .removeprefix("```")
-                    .removesuffix("```")
-                    .strip()
-                )
-                return json.loads(raw)
-            except Exception as e:
-                if attempt == 2:
-                    # Last attempt failed, fall back to rule-based
-                    return rule_based_action(obs)
-                time.sleep(1)
-
-    return run_episode(llm_action, seed)
+    return scores
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
-    """Run both agents and print comparison table."""
-
-    # Wait for the environment server to be ready (up to 60 seconds)
-    import sys
-    for attempt in range(60):
-        try:
-            health = requests.get(f"{BASE_URL}/health", timeout=5)
-            if health.status_code == 200:
-                print("Server is healthy! Continuing...", file=sys.stderr, flush=True)
-                break
-        except Exception:
-            pass
-        if attempt % 5 == 0:
-            print(f"Waiting for server... (attempt {attempt}/60)", file=sys.stderr, flush=True)
-        time.sleep(1)
-
-    model_label = MODEL_NAME.split("/")[-1][:20]
-
-    # Run agents - they print [START]/[STEP]/[END] blocks
-    rule_scores = []
-    try:
-        rule_scores = run_rule_based(seed=42)
-    except Exception as e:
-        print(f"Rule-based agent failed: {e}", file=sys.stderr, flush=True)
-
-    llm_scores = []
-    try:
-        llm_scores = run_llm_agent(seed=42)
-    except Exception as e:
-        print(f"LLM agent failed: {e}", file=sys.stderr, flush=True)
-
-    # Remove mock fallbacks entirely. The evaluator MUST see actual LLM inferences.
-
-    # Print summary table to stderr to avoid interfering with structured output
-    print("\n" + "=" * 52, file=sys.stderr, flush=True)
-    print(f"{'Task':<26} {'Rule-Based':>10} {f'LLM ({model_label})':>12}", file=sys.stderr, flush=True)
-    print("-" * 52, file=sys.stderr, flush=True)
-    task_names = ["L1 Transient", "L2 Schema", "L3 Cascade"]
+    wait_for_server()
     
-    # If both agents succeeded, print average scores
-    if len(rule_scores) == 3 and len(llm_scores) == 3:
-        for name, rb, llm in zip(task_names, rule_scores, llm_scores):
-            print(f"{name:<26} {rb:>10.2f} {llm:>12.2f}", file=sys.stderr, flush=True)
-        print("=" * 52, file=sys.stderr, flush=True)
-        print(f"{'Average':<26} {sum(rule_scores)/len(rule_scores):>10.2f} {sum(llm_scores)/len(llm_scores):>12.2f}", file=sys.stderr, flush=True)
+    model_label = MODEL_NAME.split("/")[-1][:24]
+    
+    print("\nRunning rule-based agent...", flush=True)
+    rule_scores = run_episode(rule_based_action, "rule-based", seed=42)
+    
+    print("\nRunning LLM agent...", flush=True)
+    llm_scores = run_episode(llm_action, "llm", seed=42)
+    
+    # Summary table
+    task_names = [
+        "L1 — Transient failure",
+        "L2 — Schema mismatch",
+        "L3 — Cascade root cause",
+    ]
+    
+    print("\n" + "=" * 60, flush=True)
+    print(
+        f"{'Task':<26} {'Rule-Based':>10} {f'LLM ({model_label})':>22}",
+        flush=True
+    )
+    print("-" * 60, flush=True)
+    
+    for name, rb, llm in zip(task_names, rule_scores, llm_scores):
+        print(f"{name:<26} {rb:>10.2f} {llm:>22.2f}", flush=True)
+    
+    print("=" * 60, flush=True)
+    
+    if rule_scores:
+        print(
+            f"{'Average':<26} {sum(rule_scores)/len(rule_scores):>10.2f} "
+            f"{sum(llm_scores)/len(llm_scores):>22.2f}",
+            flush=True
+        )
+    
+    print("", flush=True)
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        print(f"FATAL ERROR: {e}", flush=True)
-        import traceback
-        traceback.print_exc()
+    main()
