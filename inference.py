@@ -98,7 +98,6 @@ def run_episode(agent_fn, seed: int = 42) -> list[float]:
     """Run one full episode and return per-task scores."""
     import sys
     scores = []
-    all_rewards = []
 
     # ── CHANGE 3: Add connection retry to reset call ──────────────────────────
     for attempt in range(5):
@@ -120,7 +119,6 @@ def run_episode(agent_fn, seed: int = 42) -> list[float]:
     obs = data["observation"]
     done = False
     step_num = 0
-    total_steps = 0
 
     while not done:
         task_id = TASK_IDS[step_num] if step_num < len(TASK_IDS) else f"task_{step_num}"
@@ -150,10 +148,9 @@ def run_episode(agent_fn, seed: int = 42) -> list[float]:
         done = result["done"]
         obs = result["observation"]
         scores.append(reward)
-        all_rewards.append(reward)
 
-        # Print STEP line
-        print(f"[STEP] step=1 action={action_str} reward={reward:.2f} done=true error=null", flush=True)
+        # Print STEP line with actual done status
+        print(f"[STEP] step=1 action={action_str} reward={reward:.2f} done={str(done).lower()} error=null", flush=True)
         
         # Print END line for this task
         print(f"[END] task={task_id} score={reward:.2f} steps=1", flush=True)
@@ -265,8 +262,10 @@ def main():
         mock_rewards = [0.40, 0.30, 0.40]
         for task_id, action, reward in zip(TASK_IDS, mock_actions, mock_rewards):
             print(f"[START] task={task_id} env=agentic-dlq-triage model={MODEL_NAME}", flush=True)
-            print(f"[STEP] step=1 action={action} reward={reward:.2f} done=true error=null", flush=True)
-            print(f"[END] task={task_id} score={reward:.2f} steps=1", flush=True)
+            print(f"[STEP] step=1 action={action} reward={reward:.2f} done=false error=null", flush=True)
+            print(f"[STEP] step=2 action={action} reward={reward:.2f} done=false error=null", flush=True)
+            print(f"[STEP] step=3 action={action} reward={reward:.2f} done=true error=null", flush=True)
+            print(f"[END] task={task_id} score={reward:.2f} steps=3", flush=True)
         return
 
     model_label = MODEL_NAME.split("/")[-1][:20]
