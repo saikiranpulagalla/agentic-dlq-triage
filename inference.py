@@ -205,6 +205,9 @@ Reply with ONLY valid JSON. No explanation. No markdown fences:
 def run_llm_agent(seed: int = 42) -> list[float]:
     """Run LLM agent and return scores."""
     import sys
+    print(f"DEBUG: LLM_API_BASE_URL={LLM_API_BASE_URL}", file=sys.stderr, flush=True)
+    print(f"DEBUG: LLM_API_KEY={'***' if LLM_API_KEY else 'EMPTY'}", file=sys.stderr, flush=True)
+    
     client = OpenAI(base_url=LLM_API_BASE_URL, api_key=LLM_API_KEY)
 
     def llm_action(obs: dict) -> dict:
@@ -212,12 +215,15 @@ def run_llm_agent(seed: int = 42) -> list[float]:
         # ── CHANGE 4: Retry LLM calls + fall back to rule-based ───────────────
         for attempt in range(3):
             try:
+                # Make the API call to the evaluator's LiteLLM proxy
+                print(f"DEBUG: Attempt {attempt + 1} to call LLM", file=sys.stderr, flush=True)
                 completion = client.chat.completions.create(
                     model=MODEL_NAME,
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0.0,
                     max_tokens=300,
                 )
+                print(f"DEBUG: LLM call succeeded", file=sys.stderr, flush=True)
                 raw = completion.choices[0].message.content or ""
                 raw = (
                     raw.strip()
@@ -228,7 +234,9 @@ def run_llm_agent(seed: int = 42) -> list[float]:
                 )
                 return json.loads(raw)
             except Exception as e:
+                print(f"DEBUG: LLM call failed: {e}", file=sys.stderr, flush=True)
                 if attempt == 2:
+                    # Last attempt failed, fall back to rule-based
                     return rule_based_action(obs)
                 time.sleep(1)
 
