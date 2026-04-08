@@ -96,6 +96,7 @@ TASK_IDS = ["task_l1", "task_l2", "task_l3"]
 
 def run_episode(agent_fn, seed: int = 42) -> list[float]:
     """Run one full episode and return per-task scores."""
+    import sys
     scores = []
     all_rewards = []
 
@@ -111,9 +112,8 @@ def run_episode(agent_fn, seed: int = 42) -> list[float]:
             break
         except Exception as e:
             if attempt == 4:
-                print(f"ERROR: Cannot connect to {BASE_URL}/reset after 5 attempts: {e}", flush=True)
+                print(f"ERROR: Cannot connect to {BASE_URL}/reset after 5 attempts: {e}", file=sys.stderr, flush=True)
                 raise
-            print(f"Reset attempt {attempt + 1} failed, retrying...", flush=True)
             time.sleep(3)
 
     data = resp.json()
@@ -141,9 +141,8 @@ def run_episode(agent_fn, seed: int = 42) -> list[float]:
                 break
             except Exception as step_err:
                 if step_attempt == 2:
-                    print(f"ERROR: /step failed after 3 attempts: {step_err}", flush=True)
+                    print(f"ERROR: /step failed after 3 attempts: {step_err}", file=sys.stderr, flush=True)
                     raise
-                print(f"Step attempt {step_attempt + 1} failed, retrying...", flush=True)
                 time.sleep(2)
 
         # ── CHANGE 5: Remove reward capping ───────────────────────────────────
@@ -213,6 +212,7 @@ Reply with ONLY valid JSON. No explanation. No markdown fences:
 
 def run_llm_agent(seed: int = 42) -> list[float]:
     """Run LLM agent and return scores."""
+    import sys
     client = OpenAI(base_url=LLM_API_BASE_URL, api_key=HF_TOKEN)
 
     def llm_action(obs: dict) -> dict:
@@ -237,7 +237,6 @@ def run_llm_agent(seed: int = 42) -> list[float]:
                 return json.loads(raw)
             except Exception as e:
                 if attempt == 2:
-                    print(f"LLM failed after 3 attempts ({e}), using rule-based fallback", flush=True)
                     return rule_based_action(obs)
                 time.sleep(1)
 
@@ -248,41 +247,34 @@ def run_llm_agent(seed: int = 42) -> list[float]:
 def main():
     """Run both agents and print comparison table."""
 
-    # ── CHANGE 2: Add startup wait ────────────────────────────────────────────
-    print(f"BASE_URL = {BASE_URL}", flush=True)
-    print(f"MODEL_NAME = {MODEL_NAME}", flush=True)
-    print(f"Connecting to environment at {BASE_URL}...", flush=True)
-
+    # ── CHANGE 2: Add startup wait (silent mode - no debug output) ────────────
+    import sys
     for attempt in range(10):
         try:
             health = requests.get(f"{BASE_URL}/health", timeout=10)
             if health.status_code == 200:
-                print(f"Environment ready.", flush=True)
                 break
         except Exception:
             pass
         if attempt == 9:
-            print(f"WARNING: Could not reach {BASE_URL}/health — proceeding anyway", flush=True)
             break
-        print(f"Waiting for environment... attempt {attempt + 1}/10", flush=True)
         time.sleep(3)
 
     model_label = MODEL_NAME.split("/")[-1][:20]
 
-    print("Running rule-based agent...")
+    # Run agents - they print [START]/[STEP]/[END] blocks
     rule_scores = run_rule_based(seed=42)
-    
-    print("\nRunning LLM agent...")
     llm_scores = run_llm_agent(seed=42)
 
-    print("\n" + "=" * 52)
-    print(f"{'Task':<26} {'Rule-Based':>10} {f'LLM ({model_label})':>12}")
-    print("-" * 52)
+    # Print summary table to stderr to avoid interfering with structured output
+    print("\n" + "=" * 52, file=sys.stderr, flush=True)
+    print(f"{'Task':<26} {'Rule-Based':>10} {f'LLM ({model_label})':>12}", file=sys.stderr, flush=True)
+    print("-" * 52, file=sys.stderr, flush=True)
     task_names = ["L1 Transient", "L2 Schema", "L3 Cascade"]
     for name, rb, llm in zip(task_names, rule_scores, llm_scores):
-        print(f"{name:<26} {rb:>10.2f} {llm:>12.2f}")
-    print("=" * 52)
-    print(f"{'Average':<26} {sum(rule_scores)/len(rule_scores):>10.2f} {sum(llm_scores)/len(llm_scores):>12.2f}")
+        print(f"{name:<26} {rb:>10.2f} {llm:>12.2f}", file=sys.stderr, flush=True)
+    print("=" * 52, file=sys.stderr, flush=True)
+    print(f"{'Average':<26} {sum(rule_scores)/len(rule_scores):>10.2f} {sum(llm_scores)/len(llm_scores):>12.2f}", file=sys.stderr, flush=True)
 
 
 if __name__ == "__main__":
