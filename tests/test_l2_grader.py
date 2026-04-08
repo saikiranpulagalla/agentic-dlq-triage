@@ -17,13 +17,13 @@ def l2_scenario():
 
 
 def test_l2_correct_transform(l2_scenario):
-    """Correct transformation should score 1.0."""
+    """Correct transformation should score 0.98."""
     action = Action(
         decision="TRANSFORM_AND_RETRY",
         transformed_payload={"amount": 150.00, "currency": "USD"},
     )
     score = L2Grader.grade(action, l2_scenario)
-    assert score == 1.0
+    assert score == 0.98
 
 
 def test_l2_correct_action_wrong_types(l2_scenario):
@@ -44,35 +44,35 @@ def test_l2_correct_action_no_payload(l2_scenario):
 
 
 def test_l2_wrong_action_retry(l2_scenario):
-    """Wrong action (RETRY) should score 0.0."""
+    """Wrong action (RETRY) should score 0.01."""
     action = Action(decision="RETRY")
     score = L2Grader.grade(action, l2_scenario)
-    assert score == 0.0
+    assert score == 0.01
 
 
 def test_l2_wrong_action_skip(l2_scenario):
-    """Wrong action (SKIP) should score 0.0."""
+    """Wrong action (SKIP) should score 0.01."""
     action = Action(decision="SKIP")
     score = L2Grader.grade(action, l2_scenario)
-    assert score == 0.0
+    assert score == 0.01
 
 
 def test_l2_wrong_action_escalate(l2_scenario):
-    """Wrong action (ESCALATE) should score 0.0."""
+    """Wrong action (ESCALATE) should score 0.01."""
     action = Action(decision="ESCALATE")
     score = L2Grader.grade(action, l2_scenario)
-    assert score == 0.0
+    assert score == 0.01
 
 
 def test_l2_partial_payload(l2_scenario):
-    """Payload with extra keys but all expected keys correct should score 1.0."""
+    """Payload with extra keys but all expected keys correct should score 0.98."""
     action = Action(
         decision="TRANSFORM_AND_RETRY",
         transformed_payload={"amount": 150.00, "currency": "USD", "extra": "field"},
     )
     score = L2Grader.grade(action, l2_scenario)
-    # All expected keys present with correct types and values = 1.0
-    assert score == 1.0
+    # All expected keys present with correct types and values = 0.98
+    assert score == 0.98
 
 
 def test_l2_grader_never_raises():
@@ -81,4 +81,4 @@ def test_l2_grader_never_raises():
     action = Action(decision="TRANSFORM_AND_RETRY")
     
     score = L2Grader.grade(action, invalid_scenario)
-    assert score == 0.0
+    assert score == 0.01
