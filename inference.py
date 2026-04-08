@@ -5,6 +5,7 @@ Updated for hackathon submission compatibility.
 """
 
 import os
+import time
 import requests
 import json
 from openai import OpenAI
@@ -13,13 +14,22 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
-# Environment variables - required for submission
-API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
-MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-HF_TOKEN = os.getenv("HF_TOKEN")  # No default - required
-LLM_API_BASE_URL = os.getenv("LLM_API_BASE_URL", "https://router.huggingface.co/v1")
+# ── CHANGE 1: Read BASE_URL from environment variable ────────────────────────
+# The evaluator provides the server URL via env var. Check multiple common names.
+BASE_URL = os.environ.get(
+    "OPENENV_SERVER_URL",
+    os.environ.get(
+        "SERVER_URL",
+        os.environ.get(
+            "BASE_URL",
+            "http://localhost:8000"
+        )
+    )
+)
 
-BASE_URL = API_BASE_URL
+MODEL_NAME = os.environ.get("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+HF_TOKEN = os.environ.get("HF_TOKEN", "")
+LLM_API_BASE_URL = os.environ.get("LLM_API_BASE_URL", "https://router.huggingface.co/v1")
 
 
 # ── Rule-based agent ──────────────────────────────────────────────────────────
@@ -84,8 +94,24 @@ def run_episode(agent_fn, seed: int = 42) -> list[float]:
     """Run one full episode and return per-task scores."""
     scores = []
     all_rewards = []
-    resp = requests.post(f"{BASE_URL}/reset", json={"seed": seed})
-    resp.raise_for_status()
+
+    # ── CHANGE 3: Add connection retry to reset call ──────────────────────────
+    for attempt in range(5):
+        try:
+            resp = requests.post(
+                f"{BASE_URL}/reset",
+                json={"seed": seed},
+                timeout=30
+            )
+            resp.raise_for_status()
+            break
+        except Exception as e:
+            if attempt == 4:
+                print(f"ERROR: Cannot connect to {BASE_URL}/reset after 5 attempts: {e}", flush=True)
+                raise
+            print(f"Reset attempt {attempt + 1} failed, retrying...", flush=True)
+            time.sleep(3)
+
     data = resp.json()
     obs = data["observation"]
     done = False
@@ -102,13 +128,14 @@ def run_episode(agent_fn, seed: int = 42) -> list[float]:
         action = agent_fn(obs)
         action_str = action.get("decision", "UNKNOWN")
 
-        step_resp = requests.post(f"{BASE_URL}/step", json=action)
+        # Add timeout=30 to step call
+        step_resp = requests.post(f"{BASE_URL}/step", json=action, timeout=30)
         step_resp.raise_for_status()
         result = step_resp.json()
-        raw_reward = float(result["reward"]["total"])
-        # Cap the reward as suggested in Discord
-        reward = max(0.05, min(0.95, raw_reward))
-        reward = round(reward, 2)
+
+        # ── CHANGE 5: Remove reward capping ───────────────────────────────────
+        reward = round(float(result["reward"]["total"]), 2)
+
         done = result["done"]
         obs = result["observation"]
         scores.append(reward)
@@ -177,30 +204,29 @@ def run_llm_agent(seed: int = 42) -> list[float]:
 
     def llm_action(obs: dict) -> dict:
         prompt = build_llm_prompt(obs)
-        try:
-            completion = client.chat.completions.create(
-                model=MODEL_NAME,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.0,
-                max_tokens=300,
-            )
-            raw = completion.choices[0].message.content or ""
-            raw = (
-                raw.strip()
-                .removeprefix("```json")
-                .removeprefix("```")
-                .removesuffix("```")
-                .strip()
-            )
-            return json.loads(raw)
-        except Exception as e:
-            # Don't print STEP here - it will be printed in run_episode
-            return {
-                "decision": "ESCALATE",
-                "transformed_payload": None,
-                "root_cause_tool": None,
-                "backoff_seconds": None,
-            }
+        # ── CHANGE 4: Retry LLM calls + fall back to rule-based ───────────────
+        for attempt in range(3):
+            try:
+                completion = client.chat.completions.create(
+                    model=MODEL_NAME,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.0,
+                    max_tokens=300,
+                )
+                raw = completion.choices[0].message.content or ""
+                raw = (
+                    raw.strip()
+                    .removeprefix("```json")
+                    .removeprefix("```")
+                    .removesuffix("```")
+                    .strip()
+                )
+                return json.loads(raw)
+            except Exception as e:
+                if attempt == 2:
+                    print(f"LLM failed after 3 attempts ({e}), using rule-based fallback", flush=True)
+                    return rule_based_action(obs)
+                time.sleep(1)
 
     return run_episode(llm_action, seed)
 
@@ -208,6 +234,26 @@ def run_llm_agent(seed: int = 42) -> list[float]:
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     """Run both agents and print comparison table."""
+
+    # ── CHANGE 2: Add startup wait ────────────────────────────────────────────
+    print(f"BASE_URL = {BASE_URL}", flush=True)
+    print(f"MODEL_NAME = {MODEL_NAME}", flush=True)
+    print(f"Connecting to environment at {BASE_URL}...", flush=True)
+
+    for attempt in range(10):
+        try:
+            health = requests.get(f"{BASE_URL}/health", timeout=10)
+            if health.status_code == 200:
+                print(f"Environment ready.", flush=True)
+                break
+        except Exception:
+            pass
+        if attempt == 9:
+            print(f"WARNING: Could not reach {BASE_URL}/health — proceeding anyway", flush=True)
+            break
+        print(f"Waiting for environment... attempt {attempt + 1}/10", flush=True)
+        time.sleep(3)
+
     model_label = MODEL_NAME.split("/")[-1][:20]
 
     print("Running rule-based agent...")
