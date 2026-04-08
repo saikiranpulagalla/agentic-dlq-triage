@@ -50,16 +50,16 @@ def test_integration():
     print('   OK: L2 Grader:', round(score_l2, 2))
 
     action_l3 = Action(decision='RETRY', root_cause_tool='payment_capture')
-    score_l3 = L3Grader.grade(action_l3, l3)
-    print('   OK: L3 Grader:', round(score_l3, 2))
+    root_score, idem_score = L3Grader.grade(action_l3, l3)
+    print('   OK: L3 Grader:', f'root={round(root_score, 2)}, idem={round(idem_score, 2)}')
 
     # 4. Test reward calculator
     print('\n4. Testing Reward Calculator...')
     reward = RewardCalculator.compute(
         classification_score=score_l1,
         transformation_score=score_l2,
-        root_cause_score=score_l3,
-        idempotency_score=0.0,
+        root_cause_score=root_score,
+        idempotency_score=idem_score,
         retry_count=1
     )
     print('   OK: Reward total:', round(reward.total, 3))
