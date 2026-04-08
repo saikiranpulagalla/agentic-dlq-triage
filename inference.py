@@ -29,33 +29,6 @@ TASK_IDS = ["task_l1", "task_l2", "task_l3"]
 ENV_NAME = "agentic-dlq-triage"
 
 
-# ── Startup: wait for environment server ──────────────────────────────────────
-def wait_for_server(timeout_seconds: int = 60):
-    """Wait for the environment server to be ready."""
-    print(f"BASE_URL={BASE_URL}", flush=True)
-    print(f"MODEL_NAME={MODEL_NAME}", flush=True)
-    print(f"Connecting to environment at {BASE_URL}...", flush=True)
-    
-    start = time.time()
-    attempt = 0
-    
-    while time.time() - start < timeout_seconds:
-        try:
-            resp = requests.get(f"{BASE_URL}/health", timeout=5)
-            if resp.status_code == 200:
-                print(f"Environment ready.", flush=True)
-                return True
-        except Exception:
-            pass
-        
-        attempt += 1
-        print(f"Waiting for environment... attempt {attempt}", flush=True)
-        time.sleep(3)
-    
-    print(f"WARNING: Could not reach {BASE_URL}/health — proceeding anyway", flush=True)
-    return False
-
-
 # ── Rule-based agent ──────────────────────────────────────────────────────────
 def rule_based_action(obs: dict) -> dict:
     """Deterministic rule-based agent. Always achieves max scores."""
@@ -153,7 +126,6 @@ def llm_action(obs: dict) -> dict:
             return json.loads(raw)
         except Exception as e:
             if attempt == 2:
-                print(f"LLM failed after 3 attempts ({e}), using rule-based fallback", flush=True)
                 return rule_based_action(obs)
             time.sleep(1)
 
@@ -179,9 +151,7 @@ def run_episode(agent_fn, agent_name: str, seed: int = 42) -> list[float]:
             break
         except Exception as e:
             if attempt == 4:
-                print(f"ERROR: Cannot connect to {BASE_URL}/reset: {e}", flush=True)
                 raise
-            print(f"Reset attempt {attempt + 1} failed, retrying...", flush=True)
             time.sleep(3)
     
     data = resp.json()
@@ -232,43 +202,21 @@ def run_episode(agent_fn, agent_name: str, seed: int = 42) -> list[float]:
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
-    wait_for_server()
+    # Wait for server silently (no debug output to stdout)
+    for attempt in range(60):
+        try:
+            resp = requests.get(f"{BASE_URL}/health", timeout=5)
+            if resp.status_code == 200:
+                break
+        except Exception:
+            pass
+        time.sleep(1)
     
     model_label = MODEL_NAME.split("/")[-1][:24]
     
-    print("\nRunning rule-based agent...", flush=True)
+    # Run agents - they print [START]/[STEP]/[END] blocks
     rule_scores = run_episode(rule_based_action, "rule-based", seed=42)
-    
-    print("\nRunning LLM agent...", flush=True)
     llm_scores = run_episode(llm_action, "llm", seed=42)
-    
-    # Summary table
-    task_names = [
-        "L1 — Transient failure",
-        "L2 — Schema mismatch",
-        "L3 — Cascade root cause",
-    ]
-    
-    print("\n" + "=" * 60, flush=True)
-    print(
-        f"{'Task':<26} {'Rule-Based':>10} {f'LLM ({model_label})':>22}",
-        flush=True
-    )
-    print("-" * 60, flush=True)
-    
-    for name, rb, llm in zip(task_names, rule_scores, llm_scores):
-        print(f"{name:<26} {rb:>10.2f} {llm:>22.2f}", flush=True)
-    
-    print("=" * 60, flush=True)
-    
-    if rule_scores:
-        print(
-            f"{'Average':<26} {sum(rule_scores)/len(rule_scores):>10.2f} "
-            f"{sum(llm_scores)/len(llm_scores):>22.2f}",
-            flush=True
-        )
-    
-    print("", flush=True)
 
 
 if __name__ == "__main__":
