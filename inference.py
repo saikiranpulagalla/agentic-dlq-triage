@@ -14,15 +14,19 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
-# ── CHANGE 1: Read BASE_URL from environment variable ────────────────────────
-# The evaluator provides the server URL via env var. Check multiple common names.
+# ── Read BASE_URL from environment variable ──────────────────────────────────
+# The evaluator provides the server URL via env var. Check ALL possible names.
+# API_BASE_URL is the documented hackathon env var — check it FIRST.
 BASE_URL = os.environ.get(
-    "OPENENV_SERVER_URL",
+    "API_BASE_URL",
     os.environ.get(
-        "SERVER_URL",
+        "OPENENV_SERVER_URL",
         os.environ.get(
-            "BASE_URL",
-            "http://localhost:8000"
+            "SERVER_URL",
+            os.environ.get(
+                "BASE_URL",
+                "http://localhost:8000"
+            )
         )
     )
 )
@@ -128,10 +132,19 @@ def run_episode(agent_fn, seed: int = 42) -> list[float]:
         action = agent_fn(obs)
         action_str = action.get("decision", "UNKNOWN")
 
-        # Add timeout=30 to step call
-        step_resp = requests.post(f"{BASE_URL}/step", json=action, timeout=30)
-        step_resp.raise_for_status()
-        result = step_resp.json()
+        # Add timeout=30 to step call, with retry
+        for step_attempt in range(3):
+            try:
+                step_resp = requests.post(f"{BASE_URL}/step", json=action, timeout=30)
+                step_resp.raise_for_status()
+                result = step_resp.json()
+                break
+            except Exception as step_err:
+                if step_attempt == 2:
+                    print(f"ERROR: /step failed after 3 attempts: {step_err}", flush=True)
+                    raise
+                print(f"Step attempt {step_attempt + 1} failed, retrying...", flush=True)
+                time.sleep(2)
 
         # ── CHANGE 5: Remove reward capping ───────────────────────────────────
         reward = round(float(result["reward"]["total"]), 2)
@@ -273,4 +286,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        print(f"FATAL ERROR: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
