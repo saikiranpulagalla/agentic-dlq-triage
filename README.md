@@ -162,22 +162,22 @@ This shows the full reasoning chain for the hardest task.
 ```
 
 **Score breakdown:**
-- Root cause identified correctly: +0.98
-- Idempotency assessed correctly: +0.98
-- Retry scope correct: both components at 0.99
-- **Grader total: 0.99 (each component)**
+- Root cause identified correctly: +0.30
+- Idempotency assessed correctly: +0.30
+- Retry scope correct: +0.40
+- **Grader total: 1.00**
 
 **Final reward calculation:**
 ```
-classification_score = 0.01    (not applicable for L3)
-transformation_score = 0.01    (not applicable for L3)
-root_cause_score = 0.99        (perfect L3 grader score)
-idempotency_score = 0.99       (perfect L3 grader score)
-cost_efficiency = 0.05         (retry_count = 1 ≤ 3)
+classification_score = 1.0    (RETRY decision correct)
+transformation_score = 0.0    (not applicable for L3)
+root_cause_score = 1.0        (perfect L3 grader score)
+idempotency_score = 1.0       (perfect L3 grader score)
+cost_efficiency = 0.05        (retry_count = 1 ≤ 3)
 
-reward = (0.20×0.99 +          ← root_cause_score
-          0.15×0.99 +          ← idempotency_score
-          0.05)                ← cost_efficiency
+reward = (0.20×1.0 +          ← root_cause_score
+          0.15×1.0 +          ← idempotency_score
+          0.05)               ← cost_efficiency
        = 0.40
 ```
 
@@ -357,33 +357,32 @@ docker run -p 8000:8000 agentic-dlq-triage
 
 ### L1 Grader
 - RETRY decision: +0.6
-- Correct backoff (±10s): +0.39
-- Min score: 0.01, Max score: 0.99
+- Correct backoff (±10s): +0.4
+- Max score: 1.0
 
 ### L2 Grader
 - TRANSFORM_AND_RETRY decision: +0.4
-- Type match: +0.39
-- Exact match: +0.19
-- Min score: 0.01, Max score: 0.99
+- Type match: +0.4
+- Exact match: +0.2
+- Max score: 1.0
 
 ### L3 Grader
-- Root cause match: +0.98
-- RETRY + non-idempotent tool: +0.98
-- Min score: 0.01, Max score: 0.99 (each component)
+- Root cause match: +0.3
+- RETRY + non-idempotent tool: +0.3
+- payment_capture + RETRY: +0.4
+- Max score: 1.0
 
 ## Reward Formula
 
 ```
-cost_efficiency = 0.01 if retry_count > 3 else 0.05
+cost_efficiency = -0.1 if retry_count > 3 else 0.05
 reward = (0.35 * classification_score +
           0.25 * transformation_score +
           0.20 * root_cause_score +
           0.15 * idempotency_score +
           cost_efficiency)
-total = clamp(reward, 0.01, 0.99)
+total = clamp(reward, 0.0, 1.0)
 ```
-
-**All scores are strictly between 0 and 1 (never exactly 0.0 or 1.0)**
 
 ## Project Structure
 
@@ -431,14 +430,8 @@ Pulagalla Sai Kiran
 
 ### Grader Safety
 - All graders wrapped in try/except blocks
-- Return 0.01 on any exception (never propagate)
+- Return 0.0 on any exception (never propagate)
 - Deterministic scoring (no randomness)
-
-### Score Ranges
-- All grader outputs: 0.01-0.99 (strictly between 0 and 1)
-- All reward fields: 0.01-0.99 (strictly between 0 and 1)
-- cost_efficiency_score: 0.01-0.05 (never negative)
-- Evaluator validates all float fields are strictly between 0 and 1
 
 ### Randomness
 - Uses `random.Random(seed)` for seeded randomness

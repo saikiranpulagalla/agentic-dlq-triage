@@ -34,7 +34,7 @@ def test_reward_all_zeros():
 
 
 def test_reward_high_retry_count_penalty():
-    """High retry count (>3) should apply 0.01 penalty (minimum valid score)."""
+    """High retry count (>3) should apply -0.1 penalty."""
     reward = RewardCalculator.compute(
         classification_score=0.99,
         transformation_score=0.99,
@@ -42,8 +42,8 @@ def test_reward_high_retry_count_penalty():
         idempotency_score=0.99,
         retry_count=5,
     )
-    # (0.35 + 0.25 + 0.20 + 0.15) * 0.99 + 0.01 = 0.95 * 0.99 + 0.01 = 0.9405 + 0.01 = 0.9505
-    assert abs(reward.total - 0.9505) < 0.001
+    # (0.35 + 0.25 + 0.20 + 0.15) * 0.99 - 0.1 = 0.95 * 0.99 - 0.1 = 0.9405 - 0.1 = 0.8405
+    assert abs(reward.total - 0.8405) < 0.001
 
 
 def test_reward_clamping_lower():
@@ -55,8 +55,8 @@ def test_reward_clamping_lower():
         idempotency_score=0.01,
         retry_count=10,
     )
-    # (0.35 + 0.25 + 0.20 + 0.15) * 0.01 + 0.01 = 0.95 * 0.01 + 0.01 = 0.0095 + 0.01 = 0.0195
-    assert reward.total == 0.0195
+    # (0.35 + 0.25 + 0.20 + 0.15) * 0.01 - 0.1 = 0.95 * 0.01 - 0.1 = 0.0095 - 0.1 = -0.0905, clamped to 0.01
+    assert reward.total == 0.01
 
 
 def test_reward_clamping_upper():
@@ -110,7 +110,7 @@ def test_reward_high_retry_penalty():
         idempotency_score=0.6,
         retry_count=5,
     )
-    assert reward.cost_efficiency_score == 0.01
-    # (0.35 * 0.9) + (0.25 * 0.8) + (0.20 * 0.7) + (0.15 * 0.6) + 0.01
-    # = 0.315 + 0.20 + 0.14 + 0.09 + 0.01 = 0.755
-    assert abs(reward.total - 0.755) < 0.001
+    assert reward.cost_efficiency_score == -0.1
+    # (0.35 * 0.9) + (0.25 * 0.8) + (0.20 * 0.7) + (0.15 * 0.6) - 0.1
+    # = 0.315 + 0.20 + 0.14 + 0.09 - 0.1 = 0.645
+    assert abs(reward.total - 0.645) < 0.001

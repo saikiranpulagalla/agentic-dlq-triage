@@ -36,8 +36,7 @@ class RewardCalculator:
             Reward object with breakdown and total (strictly between 0 and 1)
         """
         # Calculate cost efficiency penalty/bonus
-        # Use 0.01 (minimum) for penalty to stay within 0-1 range
-        cost_efficiency = 0.01 if retry_count > 3 else 0.05
+        cost_efficiency = -0.1 if retry_count > 3 else 0.05
 
         # Calculate weighted reward
         reward = (
