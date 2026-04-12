@@ -1,6 +1,6 @@
 """FastAPI application for AgenticDLQ Triage environment."""
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from typing import Optional
 from dlq_triage.models import Observation, Action, Reward, EpisodeState
@@ -17,19 +17,32 @@ episode_manager = EpisodeManager()
 
 
 @app.post("/reset")
-async def reset(request: dict = None) -> dict:
+async def reset(request: Request) -> dict:
     """Reset the environment to initial state.
     
     Args:
-        request: Optional dictionary containing seed
+        request: FastAPI Request object to gracefully parse optional body
         
     Returns:
         Dictionary with observation
     """
     try:
         seed = 42  # Default seed
-        if request and "seed" in request:
-            seed = request["seed"]
+        
+        # Try to parse JSON body if it exists
+        try:
+            body = await request.json()
+            if isinstance(body, dict) and "seed" in body:
+                seed = body["seed"]
+        except Exception:
+            pass
+        
+        # Also check query params as a fallback
+        if "seed" in request.query_params:
+            try:
+                seed = int(request.query_params["seed"])
+            except ValueError:
+                pass
         
         observation = episode_manager.reset(seed)
         
