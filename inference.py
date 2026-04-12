@@ -179,13 +179,16 @@ def llm_action(obs: dict) -> dict:
 
 
 # ── Episode runner with [START]/[STEP]/[END] structured output ────────────────
-def run_episode(agent_fn, agent_name: str, seed: int = 42) -> list[float]:
+def run_episode(agent_fn, agent_name: str, seed: int = 42) -> tuple[list[float], bool]:
     """Run one full episode. Prints required structured output blocks:
     [START] task=TASK_ID env=ENV_NAME model=MODEL_NAME
     [STEP] step=N action=ACTION reward=R done=true/false error=null
-    [END] task=TASK_ID score=SCORE steps=N
+    [END] success=true/false steps=N rewards=R1,R2,...,RN
+    
+    Returns: (scores, success)
     """
     scores = []
+    all_rewards = []
     
     # Reset with retry - but don't give up if it fails
     reset_success = False
@@ -216,7 +219,7 @@ def run_episode(agent_fn, agent_name: str, seed: int = 42) -> list[float]:
             "tool_trace": []
         }
         
-        # Run both agents to ensure LLM API calls are made
+        # Run all three tasks to ensure LLM calls are made
         print("Server unavailable, running agents with mock data", file=sys.stderr, flush=True)
         
         for i, task_id in enumerate(TASK_IDS):
@@ -230,11 +233,14 @@ def run_episode(agent_fn, agent_name: str, seed: int = 42) -> list[float]:
                 print(f"Agent {agent_name} failed: {e}", file=sys.stderr, flush=True)
                 action_str = "ESCALATE"
             
-            print(f"[STEP] step={i+1} action={action_str} reward=0.0100 done=true error=null", flush=True)
-            print(f"[END] task={task_id} score=0.0100 steps={i+1}", flush=True)
-            scores.append(0.01)
+            reward = 0.01
+            print(f"[STEP] step={i+1} action={action_str} reward={reward:.2f} done=true error=null", flush=True)
+            all_rewards.append(reward)
+            scores.append(reward)
         
-        return scores
+        rewards_str = ",".join(f"{r:.2f}" for r in all_rewards)
+        print(f"[END] success=false steps={len(TASK_IDS)} rewards={rewards_str}", flush=True)
+        return scores, False
     
     # Normal execution path when reset succeeded
     data = resp.json()
@@ -243,8 +249,8 @@ def run_episode(agent_fn, agent_name: str, seed: int = 42) -> list[float]:
     task_index = 0
     total_step = 0
     
-    while not done:
-        task_id = TASK_IDS[task_index] if task_index < len(TASK_IDS) else f"task_l{task_index + 1}"
+    while not done and task_index < len(TASK_IDS):
+        task_id = TASK_IDS[task_index]
         
         # Print START for this task
         print(f"[START] task={task_id} env={ENV_NAME} model={MODEL_NAME}", flush=True)
@@ -269,36 +275,39 @@ def run_episode(agent_fn, agent_name: str, seed: int = 42) -> list[float]:
             step_resp.raise_for_status()
             result = step_resp.json()
             
-            reward = round(float(result["reward"]["total"]), 4)
+            reward = round(float(result["reward"]["total"]), 2)
             done = result["done"]
             obs = result["observation"]
+            all_rewards.append(reward)
             scores.append(reward)
             
             # Print STEP
             print(
-                f"[STEP] step={total_step} action={action_str} reward={reward:.4f} "
+                f"[STEP] step={total_step} action={action_str} reward={reward:.2f} "
                 f"done={str(done).lower()} error=null",
                 flush=True
             )
             
             # Print END for this task
-            print(f"[END] task={task_id} score={reward:.4f} steps={total_step}", flush=True)
+            print(f"[END] success=true steps={total_step} rewards={reward:.2f}", flush=True)
             
             task_index += 1
             
         except Exception as e:
             print(f"Step failed: {e}", file=sys.stderr, flush=True)
             # Print fallback output for this step with minimum valid score
+            reward = 0.01
+            all_rewards.append(reward)
             print(
-                f"[STEP] step={total_step} action={action_str} reward=0.0100 "
+                f"[STEP] step={total_step} action={action_str} reward={reward:.2f} "
                 f"done=true error=null",
                 flush=True
             )
-            print(f"[END] task={task_id} score=0.0100 steps={total_step}", flush=True)
-            scores.append(0.01)
+            print(f"[END] success=false steps={total_step} rewards={reward:.2f}", flush=True)
+            scores.append(reward)
             break
     
-    return scores
+    return scores, task_index == len(TASK_IDS)
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -309,14 +318,14 @@ def main():
         
         # Run rule-based agent first
         print("Running rule-based agent...", file=sys.stderr, flush=True)
-        rule_scores = run_episode(rule_based_action, "rule-based", seed=42)
+        rule_scores, rule_success = run_episode(rule_based_action, "rule-based", seed=42)
         
         # Run LLM agent - this ensures API calls are made to evaluator's proxy
         print("Running LLM agent...", file=sys.stderr, flush=True)
-        llm_scores = run_episode(llm_action, "llm", seed=42)
+        llm_scores, llm_success = run_episode(llm_action, "llm", seed=42)
         
-        print(f"Rule-based scores: {rule_scores}", file=sys.stderr, flush=True)
-        print(f"LLM scores: {llm_scores}", file=sys.stderr, flush=True)
+        print(f"Rule-based scores: {rule_scores}, success: {rule_success}", file=sys.stderr, flush=True)
+        print(f"LLM scores: {llm_scores}, success: {llm_success}", file=sys.stderr, flush=True)
         
     except Exception as e:
         print(f"Main execution failed: {e}", file=sys.stderr, flush=True)
@@ -338,16 +347,16 @@ def main():
             # Print required structured output
             for i, task_id in enumerate(TASK_IDS):
                 print(f"[START] task={task_id} env={ENV_NAME} model={MODEL_NAME}", flush=True)
-                print(f"[STEP] step={i+1} action=ESCALATE reward=0.0100 done=true error=null", flush=True)
-                print(f"[END] task={task_id} score=0.0100 steps={i+1}", flush=True)
+                print(f"[STEP] step={i+1} action=ESCALATE reward=0.01 done=true error=null", flush=True)
+                print(f"[END] success=false steps={i+1} rewards=0.01", flush=True)
                 
         except Exception as e2:
             print(f"Emergency fallback also failed: {e2}", file=sys.stderr, flush=True)
             # Last resort - just print structured output with minimum valid scores
             for i, task_id in enumerate(TASK_IDS):
                 print(f"[START] task={task_id} env={ENV_NAME} model={MODEL_NAME}", flush=True)
-                print(f"[STEP] step={i+1} action=ESCALATE reward=0.0100 done=true error=null", flush=True)
-                print(f"[END] task={task_id} score=0.0100 steps={i+1}", flush=True)
+                print(f"[STEP] step={i+1} action=ESCALATE reward=0.01 done=true error=null", flush=True)
+                print(f"[END] success=false steps={i+1} rewards=0.01", flush=True)
 
 
 if __name__ == "__main__":
