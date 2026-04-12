@@ -1,8 +1,8 @@
 """FastAPI application for AgenticDLQ Triage environment."""
 
-from fastapi import FastAPI, HTTPException, Body
+from fastapi import FastAPI
 from fastapi.responses import JSONResponse
-from typing import Optional, Any, Dict
+from typing import Optional
 from pydantic import BaseModel
 from dlq_triage.models import Observation, Action, Reward, EpisodeState
 from dlq_triage.episode import EpisodeManager
@@ -17,22 +17,18 @@ app = FastAPI(
 episode_manager = EpisodeManager()
 
 
+class ResetRequest(BaseModel):
+    """Request model for reset endpoint."""
+    seed: Optional[int] = None
+
+
 @app.post("/reset")
-async def reset(body: Dict[str, Any] = Body(default={})) -> dict:
-    """Reset the environment to initial state.
-    
-    Args:
-        body: Optional dictionary containing seed
-        
-    Returns:
-        Dictionary with observation
-    """
+def reset(request: ResetRequest = None):
+    """Reset the environment to initial state."""
     try:
-        seed = 42  # Default seed
-        
-        # Extract seed from body if present
-        if body and "seed" in body:
-            seed = int(body["seed"])
+        seed = 42
+        if request and request.seed is not None:
+            seed = request.seed
         
         observation = episode_manager.reset(seed)
         
@@ -41,17 +37,98 @@ async def reset(body: Dict[str, Any] = Body(default={})) -> dict:
             "info": {"episode_id": episode_manager.episode_id, "seed": seed},
         }
     except Exception as e:
-        print(f"Reset endpoint error: {e}", flush=True)
+        print(f"Reset error: {e}")
         import traceback
         traceback.print_exc()
         return JSONResponse(
             status_code=500,
-            content={
-                "error": str(e),
-                "observation": None,
-                "info": {},
-            },
+            content={"error": str(e), "observation": None, "info": {}},
         )
+
+
+@app.post("/step")
+def step(action: Action):
+    """Execute one step in the environment."""
+    try:
+        observation, reward, done, info = episode_manager.step(action)
+        
+        return {
+            "observation": observation.model_dump(),
+            "reward": reward.model_dump(),
+            "done": done,
+            "info": info,
+        }
+    except Exception as e:
+        print(f"Step error: {e}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e), "observation": None, "reward": None, "done": False, "info": {}},
+        )
+
+
+@app.get("/state")
+def get_state():
+    """Get current episode state."""
+    try:
+        state = episode_manager.state()
+        return state.model_dump()
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e), "state": None})
+
+
+@app.get("/health")
+def health():
+    """Health check endpoint."""
+    return {"status": "healthy"}
+
+
+@app.get("/metadata")
+def metadata():
+    """OpenEnv metadata endpoint."""
+    return {
+        "name": "agentic-dlq-triage",
+        "description": "OpenEnv environment for training RL agents to diagnose and recover from production tool-call failures.",
+        "version": "1.0.0",
+        "author": "Pulagalla Sai Kiran",
+        "tags": ["agentic", "reliability", "tool-calling", "error-recovery"],
+    }
+
+
+@app.get("/schema")
+def schema():
+    """OpenEnv schema endpoint."""
+    return {
+        "observation": Observation.model_json_schema(),
+        "action": Action.model_json_schema(),
+        "state": EpisodeState.model_json_schema(),
+    }
+
+
+@app.post("/mcp")
+def mcp(request: dict):
+    """MCP JSON-RPC endpoint."""
+    return {
+        "jsonrpc": "2.0",
+        "id": request.get("id", 1),
+        "result": {
+            "name": "agentic-dlq-triage",
+            "version": "1.0.0",
+            "capabilities": ["reset", "step", "state"],
+        },
+    }
+
+
+def main():
+    """Main entry point for server."""
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
+if __name__ == "__main__":
+    main()
+
 
 
 @app.post("/step")
