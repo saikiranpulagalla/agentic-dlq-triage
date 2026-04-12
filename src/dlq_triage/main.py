@@ -1,14 +1,11 @@
 """FastAPI application for AgenticDLQ Triage environment."""
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Body
 from fastapi.responses import JSONResponse
-from typing import Optional, Any
+from typing import Optional, Any, Dict
 from pydantic import BaseModel
 from dlq_triage.models import Observation, Action, Reward, EpisodeState
 from dlq_triage.episode import EpisodeManager
-
-class ResetRequest(BaseModel):
-    seed: Optional[int] = 42
 
 app = FastAPI(
     title="AgenticDLQ Triage",
@@ -21,11 +18,11 @@ episode_manager = EpisodeManager()
 
 
 @app.post("/reset")
-async def reset(request: Request) -> dict:
+async def reset(body: Dict[str, Any] = Body(default={})) -> dict:
     """Reset the environment to initial state.
     
     Args:
-        request: FastAPI Request object
+        body: Optional dictionary containing seed
         
     Returns:
         Dictionary with observation
@@ -33,14 +30,9 @@ async def reset(request: Request) -> dict:
     try:
         seed = 42  # Default seed
         
-        # Try to parse JSON body
-        try:
-            body = await request.json()
-            if isinstance(body, dict) and "seed" in body:
-                seed = int(body["seed"])
-        except:
-            # If no JSON body or parsing fails, use default seed
-            pass
+        # Extract seed from body if present
+        if body and "seed" in body:
+            seed = int(body["seed"])
         
         observation = episode_manager.reset(seed)
         
