@@ -41,7 +41,7 @@ class FailureGenerator:
         Correct action: RETRY with backoff_seconds=32
         """
         return {
-            "task_id": "dlq_001",
+            "task_id": "task_l1",
             "tool_name": "stripe_charge_api",
             "error_type": "transient",
             "error_message": (
@@ -71,7 +71,7 @@ class FailureGenerator:
         Correct action: TRANSFORM_AND_RETRY with corrected payload
         """
         return {
-            "task_id": "dlq_002",
+            "task_id": "task_l2",
             "tool_name": "payment_processor",
             "error_type": "schema_mismatch",
             "error_message": (
@@ -106,7 +106,7 @@ class FailureGenerator:
         Correct action: RETRY with root_cause_tool="payment_capture"
         """
         return {
-            "task_id": "dlq_003",
+            "task_id": "task_l3",
             "tool_name": "order_fulfillment_pipeline",
             "error_type": "cascading",
             "error_message": (
