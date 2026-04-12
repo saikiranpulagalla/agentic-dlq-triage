@@ -21,27 +21,37 @@ episode_manager = EpisodeManager()
 
 
 @app.post("/reset")
-async def reset(request: Optional[ResetRequest] = None) -> dict:
+async def reset(request: Request) -> dict:
     """Reset the environment to initial state.
     
     Args:
-        request: Optional ResetRequest containing seed
+        request: FastAPI Request object
         
     Returns:
         Dictionary with observation
     """
     try:
         seed = 42  # Default seed
-        if request and request.seed is not None:
-            seed = request.seed
+        
+        # Try to parse JSON body
+        try:
+            body = await request.json()
+            if isinstance(body, dict) and "seed" in body:
+                seed = int(body["seed"])
+        except:
+            # If no JSON body or parsing fails, use default seed
+            pass
         
         observation = episode_manager.reset(seed)
         
         return {
             "observation": observation.model_dump(),
-            "info": {"episode_id": episode_manager.episode_id},
+            "info": {"episode_id": episode_manager.episode_id, "seed": seed},
         }
     except Exception as e:
+        print(f"Reset endpoint error: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
         return JSONResponse(
             status_code=500,
             content={
