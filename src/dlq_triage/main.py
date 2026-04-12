@@ -17,18 +17,19 @@ episode_manager = EpisodeManager()
 
 
 @app.post("/reset")
-async def reset(seed: Optional[int] = None) -> dict:
+async def reset(request: dict = None) -> dict:
     """Reset the environment to initial state.
     
     Args:
-        seed: Optional random seed for reproducibility
+        request: Optional dictionary containing seed
         
     Returns:
         Dictionary with observation
     """
     try:
-        if seed is None:
-            seed = 42
+        seed = 42  # Default seed
+        if request and "seed" in request:
+            seed = request["seed"]
         
         observation = episode_manager.reset(seed)
         
@@ -38,7 +39,7 @@ async def reset(seed: Optional[int] = None) -> dict:
         }
     except Exception as e:
         return JSONResponse(
-            status_code=200,
+            status_code=500,
             content={
                 "error": str(e),
                 "observation": None,
@@ -68,7 +69,7 @@ async def step(action: Action) -> dict:
         }
     except Exception as e:
         return JSONResponse(
-            status_code=200,
+            status_code=500,
             content={
                 "error": str(e),
                 "observation": None,
@@ -91,7 +92,7 @@ async def get_state() -> dict:
         return state.model_dump()
     except Exception as e:
         return JSONResponse(
-            status_code=200,
+            status_code=500,
             content={
                 "error": str(e),
                 "state": None,
