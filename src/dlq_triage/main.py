@@ -2,13 +2,9 @@
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
-from typing import Optional, Dict, Any
+from typing import Optional
 from dlq_triage.models import Observation, Action, Reward, EpisodeState
 from dlq_triage.episode import EpisodeManager
-from dlq_triage.graders.l1_grader import L1Grader
-from dlq_triage.graders.l2_grader import L2Grader
-from dlq_triage.graders.l3_grader import L3Grader
-from dlq_triage.failure_generator import FailureGenerator
 
 app = FastAPI(
     title="AgenticDLQ Triage",
@@ -18,97 +14,6 @@ app = FastAPI(
 
 # Global episode manager
 episode_manager = EpisodeManager()
-
-
-@app.get("/tasks")
-async def get_tasks() -> dict:
-    """Get list of available tasks with graders.
-    
-    Returns:
-        Dictionary with tasks information
-    """
-    return {
-        "tasks": [
-            {
-                "task_id": "task_l1",
-                "name": "Transient failure recovery",
-                "difficulty": "easy",
-                "description": "Agent receives a rate-limit failure trace and must decide to RETRY with correct backoff.",
-                "grader": True,
-                "score_range": [0.01, 0.99]
-            },
-            {
-                "task_id": "task_l2", 
-                "name": "Schema mismatch transform",
-                "difficulty": "medium",
-                "description": "Agent must identify type mismatch, produce corrected payload, and select TRANSFORM_AND_RETRY.",
-                "grader": True,
-                "score_range": [0.01, 0.99]
-            },
-            {
-                "task_id": "task_l3",
-                "name": "Cascade root cause diagnosis", 
-                "difficulty": "hard",
-                "description": "Three linked tools - one timeout causes downstream failure. Agent must identify root cause.",
-                "grader": True,
-                "score_range": [0.01, 0.99]
-            }
-        ]
-    }
-
-
-@app.post("/grader")
-async def grade_task(request: Dict[str, Any]) -> dict:
-    """Grade a task based on action and scenario.
-    
-    Args:
-        request: Dictionary containing task_id, action, and scenario
-        
-    Returns:
-        Dictionary with grading result
-    """
-    try:
-        task_id = request.get("task_id")
-        action_data = request.get("action", {})
-        scenario = request.get("scenario", {})
-        
-        # Convert action data to Action object
-        action = Action(**action_data)
-        
-        if task_id == "task_l1":
-            score = L1Grader.grade(action, scenario)
-            return {
-                "task_id": task_id,
-                "score": score,
-                "score_range": [0.01, 0.99]
-            }
-        elif task_id == "task_l2":
-            score = L2Grader.grade(action, scenario)
-            return {
-                "task_id": task_id,
-                "score": score,
-                "score_range": [0.01, 0.99]
-            }
-        elif task_id == "task_l3":
-            root_score, idem_score = L3Grader.grade(action, scenario)
-            # For grader endpoint, return combined score
-            combined_score = (root_score + idem_score) / 2
-            return {
-                "task_id": task_id,
-                "score": combined_score,
-                "score_range": [0.01, 0.99]
-            }
-        else:
-            return JSONResponse(
-                status_code=400,
-                content={"error": f"Unknown task_id: {task_id}"}
-            )
-            
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={"error": str(e)}
-        )
 
 
 @app.post("/reset")
