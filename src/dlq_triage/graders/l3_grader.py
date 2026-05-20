@@ -34,8 +34,13 @@ class L3Grader:
                 root_cause_score = 0.99  # Maximum valid score (not 1.0)
 
             # idempotency_score (+0.98 if agent correctly chose RETRY
-            # knowing tool_trace[1] is non-idempotent)
-            root_cause_idempotent = scenario["tool_trace"][1].get("idempotent", True)
+            # knowing the root cause tool is non-idempotent)
+            root_cause_idempotent = True
+            for trace in scenario.get("tool_trace", []):
+                if trace.get("tool") == scenario.get("root_cause_tool"):
+                    root_cause_idempotent = trace.get("idempotent", True)
+                    break
+
             if action.decision == "RETRY" and not root_cause_idempotent:
                 idempotency_score = 0.99  # Maximum valid score (not 1.0)
 

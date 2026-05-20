@@ -69,6 +69,9 @@ def _types_match(payload1: Dict[str, Any], payload2: Dict[str, Any]) -> bool:
         True if all keys in payload2 exist in payload1 with matching types
     """
     try:
+        if not isinstance(payload1, dict) or not isinstance(payload2, dict):
+            return False
+
         for key, value in payload2.items():
             if key not in payload1:
                 return False
